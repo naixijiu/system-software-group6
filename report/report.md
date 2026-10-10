@@ -5,16 +5,16 @@
 | 项目 | 内容 |
 |---|---|
 | 实验名称 | Lab 1：比麻雀更小的麻雀（最小可执行内核） |
-| 小组成员 | 【待填写：学号-姓名、学号-姓名、学号-姓名】 |
+| 小组成员 | 2513613 李佳凝、2512558 张爱迪、2513582 张子芊 |
 | 完成日期 | 2026-10-10 |
 
 ### 小组分工
 
 | 成员 | 负责的练习/模块 |
 |---|---|
-| A【待填写姓名学号】 | Makefile、链接脚本、交叉编译和 GitHub 项目管理 |
-| B【待填写姓名学号】 | 内核启动原理、核心代码和练习一 |
-| C【待填写姓名学号】 | QEMU/GDB 调试、寄存器与指令分析和练习二 |
+| A 2513613 李佳凝 | Makefile、链接脚本、交叉编译和 GitHub 项目管理 |
+| B 2512558 张爱迪 | 内核启动原理、核心代码和练习一 |
+| C 2513582 张子芊 | QEMU/GDB 调试、寄存器与指令分析和练习二 |
 
 实验报告由三名成员分别完成本人负责部分，A 负责最终合并，三人共同检查。
 
@@ -31,19 +31,19 @@
 |---|---|
 | 宿主系统 | Windows + WSL Ubuntu |
 | 目标架构 | RISC-V 64 位 |
-| 交叉编译工具链 | SiFive RISC-V GNU Toolchain 10.2.0 |
+| 交叉编译工具链 | A：SiFive `riscv64-unknown-elf` GCC 10.2.0；B：`riscv64-linux-gnu`；C：项目 Makefile 配置的 `riscv64-unknown-elf`（版本未单独记录） |
 | 模拟器 | QEMU（RISC-V virt 平台） |
-| 固件 | A：OpenSBI v1.3；B：OpenSBI v1.3 C：OpenSBI v0.9 |
-| 调试工具 | A：riscv64-unknown-elf-gdb；B：riscv64-linux-gnu C：gdb-multiarch 12.1 |
+| 固件 | A：OpenSBI v1.3；B：OpenSBI v1.3；C：OpenSBI v0.9（Runtime SBI 0.2） |
+| 调试工具 | A：`riscv64-unknown-elf-gdb`；B：`gdb-multiarch`；C：`gdb-multiarch` 12.1 |
 | 版本管理 | Git + GitHub |
 
 本组使用的 AI 工具如下：
 
 | 成员 | AI 编程工具 | 底层模型 | 备注 |
 |---|---|---|---|
-| A【待填写姓名学号】 | ChatGPT | 【由 A 补充】 | 编译链接与项目管理 |
-| B【待填写姓名学号】 | Codex 桌面应用 | deepseek-V4-pro | 内核启动原理与练习一 |
-| C【待填写姓名学号】 | Codex 桌面应用 | GPT-5 | GDB 调试与练习二 |
+| A 2513613 李佳凝 | ChatGPT | GPT-6.1 | 编译链接与项目管理 |
+| B 2512558 张爱迪 | Codex 桌面应用 | DeepSeek-V4-Pro | 内核启动原理与练习一 |
+| C 2513582 张子芊 | Codex 桌面应用 | GPT-5 | GDB 调试与练习二 |
 
 ## 三、实验原理
 
@@ -245,7 +245,7 @@ riscv64-unknown-elf-nm -n bin/kernel | grep -E 'kern_entry|kern_init|edata|end|b
 
 ### 5.1 练习一：理解内核入口操作
 
-**负责人：** B【待填写姓名学号】
+**负责人：** B 2512558 张爱迪
 
 **题目：** 阅读 `kern/init/entry.S` 内容代码，结合操作系统内核启动流程，说明指令 `la sp, bootstacktop` 完成了什么操作，目的是什么？`tail kern_init` 完成了什么操作，目的是什么？
 
@@ -353,9 +353,9 @@ bootstacktop:
 
 ### 5.2 练习二：使用 GDB 验证启动流程
 
-**负责人：** C【待填写姓名学号】
+**负责人：** C 2513582 张子芊
 
-本练习使用 QEMU GDB Stub 和 `gdb-multiarch`，观察 CPU 从复位地址 `0x1000` 出发，经 OpenSBI 初始化后进入 `0x80200000 <kern_entry>`，并验证内核启动栈的建立以及进入 `kern_init` 的过程。
+本练习使用 QEMU GDB Stub 和 `gdb-multiarch`，先观察复位地址 `0x1000` 处的跳板代码，再在 `0x80200000 <kern_entry>` 设置断点确认 OpenSBI 已将控制权交给内核，并验证内核启动栈的建立以及进入 `kern_init` 的过程。
 
 调试前，C 组员已完成 `make` 和 `make qemu`，确认内核能够正常输出启动信息。
 
@@ -446,7 +446,7 @@ a1 = 0x87000000
 a2 = 0x7
 ```
 
-`a0 = 0` 表示启动 hart 的编号为 0，`a1 = 0x87000000` 是 OpenSBI 传给下一阶段的设备树地址。此时 `sp` 仍是固件阶段使用的栈。
+`a0 = 0` 表示启动 hart 的编号为 0，`a1 = 0x87000000` 是 OpenSBI 传给下一阶段的设备树地址。`a2 = 7` 是本次调试的实际观察值，但 `kern_entry` 并未使用该寄存器，因此不为它赋予固定语义。此时 `sp` 仍保留着固件阶段遗留的值，内核栈尚未建立。
 
 `kern_entry` 的实际反汇编为：
 
@@ -467,7 +467,7 @@ bootstacktop = 0x80203000
 
 | 状态 | PC | SP | 说明 |
 |---|---|---|---|
-| 命中 `kern_entry` | `0x80200000` | `0x80017ee0` | 仍使用 OpenSBI 的旧栈 |
+| 命中 `kern_entry` | `0x80200000` | `0x80017ee0` | 保留固件阶段遗留的 SP 值，内核栈尚未建立 |
 | 执行第一条入口指令后 | `0x80200004` | `0x80203000` | SP 切换到 `bootstacktop` |
 | 执行第二条入口指令后 | `0x80200008` | `0x80203000` | SP 保持不变 |
 | 执行跳转后 | `0x8020000a` | `0x80203000` | 进入 `kern_init` |
@@ -478,9 +478,9 @@ GDB 将 `0x80203000` 同时显示为相邻全局符号名 `<SBI_CONSOLE_PUTCHAR>
 
 #### 5.2.4 练习二结论
 
-RISC-V 虚拟机启动后首先从物理地址 `0x1000` 执行 QEMU 复位跳板。最初六条指令准备 hart ID、设备树地址和固件相关参数，并跳转到 OpenSBI。OpenSBI 在机器态完成平台和处理器初始化后，以 S 模式把控制权交给 `0x80200000` 的 `kern_entry`。
+RISC-V 虚拟机启动后首先从物理地址 `0x1000` 执行 QEMU 复位跳板。最初六条指令准备 hart ID、设备树地址和固件相关参数，并跳转到 OpenSBI。调试中先观察该复位跳板，再通过 `0x80200000` 断点确认 OpenSBI 在机器态完成初始化后，已以 S 模式把控制权交给 `kern_entry`。
 
-在内核入口处，`la sp, bootstacktop` 被展开为实际机器指令，实测使 SP 从固件栈 `0x80017ee0` 变为内核栈顶 `0x80203000`。随后 `tail kern_init` 被链接为不保存返回地址的跳转，PC 进入 `0x8020000a <kern_init>`。以上结果动态验证了“复位跳板 → OpenSBI → 内核入口 → 建立内核栈 → C 入口”的完整启动过程。
+在内核入口处，`la sp, bootstacktop` 被展开为实际机器指令，实测使 SP 从固件阶段遗留值 `0x80017ee0` 变为内核栈顶 `0x80203000`。随后 `tail kern_init` 被链接为不保存返回地址的跳转，PC 进入 `0x8020000a <kern_init>`。以上关键节点共同验证了“复位跳板 → OpenSBI → 内核入口 → 建立内核栈 → C 入口”的启动过程。
 
 本练习使用 AI 的具体提示词、连接超时问题和迭代过程记录在 `prompt.md` 中，所有寄存器值和反汇编均来自实际 GDB 输出。
 
