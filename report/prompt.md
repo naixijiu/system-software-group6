@@ -4,128 +4,73 @@
 
 ## A 组员：环境、构建、链接与项目管理
 
-### A01｜确定 RISC-V 工具链安装方案
+### A01｜确认课程任务与实验环境
 
 ```text
-risc-v我还没下载，怎么用它给的链接下
-我使用 Windows WSL Ubuntu，请继续指导我下载和安装 RISC-V 工具链。
+我负责三人小组中的 A 部分，主要完成 Lab1 的环境与构建、Makefile 和 kernel.ld 分析、GitHub 项目管理。实验需要使用 RISC-V、QEMU 和 GDB，我使用 Windows WSL Ubuntu。请结合实验指导书，告诉我应当先准备哪些工具、如何验证环境，以及与组员的工作如何衔接。
 ```
 
-作用：确定在 WSL Ubuntu 中使用 Linux x86-64 版 `riscv64-unknown-elf` 工具链。
+实际过程：先明确三人共同完成基础实验、各自深入模块的分工，再安装 RISC-V GNU 工具链和 QEMU。本人承担编译链接分析、启动排错、报告整合与版本管理。
 
-### A02｜排查解压目录和 PATH
+### A02｜排查 RISC-V 工具链路径问题
 
 ```text
-为什么
-这样的，咋还是找不到
+我根据实验指导书推荐的 SiFive 下载链接获取了 RISC-V 工具链。在 Ubuntu 中解压时提示目标目录不存在；之后在 /opt/riscv 下能够找到 riscv64-unknown-elf-gcc，但执行 gcc --version 仍提示 command not found。请根据终端输出区分解压路径与 PATH 配置的问题，并告诉我怎样修改 ~/.bashrc 和检查安装是否成功。
 ```
 
-上下文：截图分别显示 `/home/nxj/riscv` 不存在，以及编译器实际位于 `/opt/riscv/.../bin/` 但命令仍为 `command not found`。最终修正 `~/.bashrc` 中的路径并通过版本检查。
+实际过程：先区分 `~/riscv` 和 `/opt/riscv`，再发现 GCC 实际位于 `/opt/riscv/` 下多一层的工具链目录。将正确的 `bin` 路径加入 `PATH`，执行 `source ~/.bashrc` 后，GCC 与 GDB 的版本检查通过。
 
-### A03｜建立小组目录与 Git 分支
+### A03｜准备 Lab1 源码和小组 GitHub 分支
 
 ```text
-好的！我是A，那我们开始吧
-没找到
+我已经拿到课程提供的 lab1 代码，小组仓库是 https://github.com/naixijiu/system-software-group6 。老师要求每次实验对应一个 labx 分支，并在分支中放置 code/ 和 report/；report/ 需要 report.md、prompt.md 与 images/。我使用 WSL Ubuntu，请指导我创建 lab1 分支，整理目录，并确认代码应放在哪里才可以正常执行 make。
 ```
 
-上下文：同时提供了课程关于 `lab1` 分支、`code/`、`report/`、`report.md`、`prompt.md` 与 `images/` 的提交要求。
+实际过程：本地克隆仓库、创建 `lab1` 分支、建立 `code/` 和 `report/`；将实验源码置于 `code/`。检查 `pwd`、`git branch`、`ls` 后确认目录正确。
 
-### A04｜检查内核构建结果
+### A04｜确认 Makefile 构建产物并定位启动失败
 
 ```text
-lab1已经放进去了，make的结果是这样，我们继续吧
+我在 code/ 目录运行 make，终端依次输出多个 + cc、+ ld bin/kernel，并通过 objcopy 生成 bin/ucore.img，构建没有报错。但 make qemu 只显示 OpenSBI，尚未看到 (THU.CST) os is loading ...；日志中的 Domain0 Next Address 是 0x0。请分析编译、链接、加载与执行的区别，并指导我用 readelf 和 make -n qemu 排查问题。
 ```
 
-上下文：附 `make` 成功输出。核验得到构建产物 `bin/kernel` 和 `bin/ucore.img`。
+实际过程：`bin/kernel` 与 `bin/ucore.img` 均已生成；`readelf -h` 显示 ELF 入口地址为 `0x80200000`，而原 Makefile 使用 `-device loader,file=bin/ucore.img,addr=0x80200000`。说明 ELF 入口正确并不能单独保证 QEMU/OpenSBI 会跳转到该入口。
 
-### A05｜定位 OpenSBI 未进入内核的问题
+### A05｜验证修正后的 QEMU 加载方式并修改 Makefile
 
 ```text
-这样的
-好像没问题
+我把 QEMU 启动方式改为 -bios default -kernel bin/kernel 后，OpenSBI 输出的 Domain0 Next Address 变为 0x80200000，并成功打印 (THU.CST) os is loading ...。请根据我贴出的 Makefile qemu、debug、gdb 目标，解释其中的依赖与参数，指导我做最小修改，并检查修正是否影响后续 GDB 调试。
 ```
 
-上下文：OpenSBI 显示 `Domain0 Next Address = 0x0`，随后提供 `readelf -h` 与 `make -n qemu` 输出。通过对比发现 ELF 入口正确，但原 QEMU 加载方式未让 OpenSBI 获得下一阶段入口。
+实际过程：用成功的直接启动命令确认故障出在当前环境使用的镜像加载方式，随后修改 `qemu` 和 `debug` 目标并再次运行。曾经在用户主目录执行 `make gdb` 导致 `No rule to make target 'gdb'`，切换到 `code/` 目录后连接正常。后续 C 组员还修正了 `debug` 目标的续行反斜杠并适配其 GDB 工具。
 
-### A06｜调整 QEMU 启动目标
+### A06｜深入理解 Makefile 和 kernel.ld
 
 ```text
-这次是对的
+现在内核已经能运行、GDB 也能连接。请结合本次 Lab1 的实际 Makefile 和 tools/kernel.ld，逐段讲解：C 和汇编文件怎样编译成 .o，目标文件怎样链接成 ELF，objcopy 为什么还要生成 ucore.img，链接脚本如何规定 kern_entry、.text、.rodata、.data 以及为什么基地址使用 0x80200000。希望分析能用于我负责的实验报告，而不是只给出结论。
 ```
 
-上下文：提供改用 `-kernel bin/kernel` 后的成功启动截图，以及 Makefile 中 `qemu`、`debug`、`gdb` 目标。最终统一启动与调试参数。
+实际过程：学习了 `GCCPREFIX`、`CFLAGS`、`LDFLAGS`、`tools/function.mk`、`-T tools/kernel.ld`、`ENTRY(kern_entry)`、`BASE_ADDRESS` 与 `ALIGN(0x1000)` 等内容；区分链接地址、镜像加载地址和 CPU 实际执行入口。
 
-### A07｜排查 `make gdb` 找不到目标
+### A07｜使用 readelf 和 nm 验证内存布局及启动栈
 
 ```text
-make qemu是对的，但是
+我已经成功生成 bin/kernel。请帮我分析 readelf -S 与 nm -n 的真实输出，核对 .text、.rodata、.data、.sdata 的起始地址和大小；检查 kern_entry、kern_init、bootstack、bootstacktop、edata、end 等符号，计算内核启动栈大小，并说明这些结果如何验证 kernel.ld。若命令提示找不到文件，也请先检查当前工作目录。
 ```
 
-上下文：截图显示在 WSL 用户主目录执行 `make gdb`。切换到项目 `code/` 目录后恢复正常。
+实际过程：起初在仓库根目录执行 `readelf -S bin/kernel` 导致文件找不到，进入 `code/` 后验证成功。节地址显示 `.text=0x80200000`、`.rodata=0x802004c8`、`.data=0x80201000`、`.sdata=0x80203000`。符号表显示 `kern_entry=0x80200000`、`kern_init=0x8020000a`、`bootstack=0x80201000`、`bootstacktop=0x80203000`，故启动栈为 `0x2000=8192` 字节；`edata=end=0x80203008`。
 
-### A08｜理解 Makefile 和链接脚本
+### A08｜整理 Git 提交、截图及报告交付物
 
 ```text
-哦没问题了，我们继续这些部分吧
-接下来我们就可以进入你作为 A 组员的理论部分：逐段精读 Makefile，并分析 tools/kernel.ld 为什么把内核放在 0x80200000。
+现在 A 部分已经完成，请按照老师要求帮我检查 Git 工作区：lab1 分支是否正确，code/ 是否包含完整源代码，report/ 是否包含 report.md、prompt.md 和 images/，哪些编译产物需要通过 .gitignore 排除。实验报告中我准备使用内核成功启动、ELF 节表和 nm 符号表三张实际截图；请说明图片路径、Markdown 引用、Git 提交和推送前的检查方式，并协助整理我负责的报告部分。
 ```
 
-### A09｜排查 `readelf` 路径错误
+实际过程：使用 `git status --short` 和 `git add -n` 检查未跟踪文件与待添加文件；通过 `.gitignore` 排除生成的编译产物；将三张截图放入 `report/images/`。在 HTTPS 推送时遇到 GitHub 不支持账户密码验证的问题，按提示改用个人访问令牌完成身份验证。最后将 A 部分与 B、C 后续提交的内容合并。
 
-```text
-怎么是这样
-```
+### A 部分经验总结
 
-上下文：在仓库根目录执行命令导致找不到 `bin/kernel`；切换至 `code/` 后命令成功。
-
-### A10｜验证 ELF 节布局
-
-```text
-这样的
-```
-
-上下文：提供 `riscv64-unknown-elf-readelf -S bin/kernel` 截图，核验 `.text`、`.rodata`、`.data` 与 `.sdata` 的地址。
-
-### A11｜验证内核符号和启动栈
-
-```text
-这样
-```
-
-上下文：提供 `nm -n bin/kernel` 筛选结果，核验 `kern_entry`、`kern_init`、`bootstack`、`bootstacktop`、`edata` 和 `end`。
-
-### A12｜检查 Git 待提交文件
-
-```text
-这样
-```
-
-上下文：分别提供 `git status --short` 与 `git add -n` 输出，用于检查目录结构和 `.gitignore`。
-
-### A13｜编写实验报告
-
-```text
-好
-```
-
-上下文：要求依据已经完成的编译、启动、节布局与符号验证整理 A 负责部分，并给 B、C 预留章节。
-
-### A14｜选择实验截图
-
-```text
-截图应该用哪三张，怎么放？
-```
-
-处理结果：选择内核启动、ELF 节布局和内核符号表三张截图，保存到 `report/images/` 并使用相对路径引用。
-
-### A15｜整理提示词
-
-```text
-好了，可以整理prompt.md了
-```
-
-处理结果：形成 A 组员的原始 AI 辅助记录，随后与 C 组员记录合并为本文件。
+本次使用 AI 的核心方式是**先实际操作，再提供完整终端结果，要求分析原因，最后使用命令重新验证**。关键故障包括工具链 PATH 错误、命令执行目录错误、QEMU 加载方式与当前固件行为不匹配。真正证明问题解决的是 `gcc --version`、`make`、`make qemu`、`readelf`、`nm` 和 GDB 的实际输出，而不是 AI 给出的文字结论。
 
 ## B 组员：内核启动原理与练习一
 
