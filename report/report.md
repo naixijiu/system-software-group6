@@ -42,7 +42,7 @@
 | 成员 | AI 编程工具 | 底层模型 | 备注 |
 |---|---|---|---|
 | A【待填写姓名学号】 | ChatGPT | 【由 A 补充】 | 编译链接与项目管理 |
-| B【待填写姓名学号】 | 【由 B 补充】 | 【由 B 补充】 | 内核启动原理与练习一 |
+| B【待填写姓名学号】 | Codex 桌面应用 | deepseek-V4-pro | 内核启动原理与练习一 |
 | C【待填写姓名学号】 | Codex 桌面应用 | GPT-5 | GDB 调试与练习二 |
 
 ## 三、实验原理
@@ -53,7 +53,11 @@
 
 CPU 加电复位 → 执行复位地址 `0x1000` 处的引导代码 → 进入 OpenSBI 固件 → 跳转至 `0x80200000` → 执行 `kern_entry` → 初始化内核栈 → 进入 `kern_init()`。
 
-其中，OpenSBI 固件提供底层硬件初始化及 SBI 服务，内核入口汇编代码负责完成进入 C 语言环境前的必要准备。
+整个过程是「固件 → 引导程序 → 操作系统」的三级接力。CPU 加电后，PC 被硬件置为复位地址 `0x1000`，这里执行的是一小段固化在只读存储器中的跳板代码，它准备好 hart ID、设备树地址等参数后跳转到固件。操作系统内核无法把自己加载进内存，必须由更底层的程序先运行并完成这一步交接。
+
+OpenSBI 固件位于 `0x80000000`，运行在最高特权级 M 模式。它完成处理器与平台的初始化，并对外提供 SBI 服务（如控制台输出、定时器）；初始化完成后，OpenSBI 把控制权交给运行在 S 模式的内核，交接地址就是内核入口 `0x80200000`。
+
+内核入口汇编代码 `kern_entry` 负责完成进入 C 语言环境前的必要准备：把栈指针设置到内核栈顶，再跳转到 C 入口 `kern_init()`。内核之所以固定在 `0x80200000`，是因为内核属于地址相关代码，链接脚本已将入口地址写死为该值，QEMU 的加载地址与 OpenSBI 的跳转地址都必须与之保持一致。各阶段的指令与寄存器级验证见 5.1、5.2 节。
 
 ### 3.2 Makefile 编译构建流程
 
@@ -241,7 +245,111 @@ riscv64-unknown-elf-nm -n bin/kernel | grep -E 'kern_entry|kern_init|edata|end|b
 
 ### 5.1 练习一：理解内核入口操作
 
-（由 B 组员补充）
+**负责人：** B【待填写姓名学号】
+
+**题目：** 阅读 `kern/init/entry.S` 内容代码，结合操作系统内核启动流程，说明指令 `la sp, bootstacktop` 完成了什么操作，目的是什么？`tail kern_init` 完成了什么操作，目的是什么？
+
+本练习通过阅读内核入口汇编 `kern/init/entry.S` 与 C 入口 `kern/init/init.c`，结合编译链接得到的实际反汇编，分析内核在进入 C 语言环境之前做了哪些准备。各条结论均与 ELF 符号表及 `objdump` 反汇编相互印证。
+
+#### 5.1.1 源码与符号地址
+
+```asm
+#include <mmu.h>
+#include <memlayout.h>
+
+    .section .text,"ax",%progbits
+    .globl kern_entry
+kern_entry:
+    la sp, bootstacktop
+
+    tail kern_init
+
+.section .data
+    # .align 2^12
+    .align PGSHIFT
+    .global bootstack
+bootstack:
+    .space KSTACKSIZE
+    .global bootstacktop
+bootstacktop:
+```
+
+`entry.S` 是内核的汇编入口，也是 OpenSBI 移交控制权后执行的第一段内核代码。它分为两部分：`.text` 段中定义全局符号 `kern_entry`（链接脚本中的 `ENTRY(kern_entry)` 指向它），负责建立内核栈并跳转到 C 入口；`.data` 段中用 `.space KSTACKSIZE` 预留内核栈空间。
+
+栈大小由 `KSTACKSIZE = KSTACKPAGE * PGSIZE = 2 * 4096 = 8192` 字节（8 KiB）决定，定义在 `kern/mm/memlayout.h` 与 `kern/mm/mmu.h` 中。相关符号的实际链接地址如下：
+
+| 符号 | 地址 |
+|---|---|
+| `kern_entry` | `0x80200000` |
+| `kern_init` | `0x8020000a` |
+| `bootstack` | `0x80201000` |
+| `bootstacktop` | `0x80203000` |
+
+`bootstacktop - bootstack = 0x80203000 - 0x80201000 = 0x2000 = 8192` 字节，与 `KSTACKSIZE` 一致。
+
+#### 5.1.2 分析 `la sp, bootstacktop`
+
+`sp` 是 RISC-V 的栈指针寄存器（x2），指向当前栈顶；`bootstacktop` 是 `.data` 段中定义的符号，表示内核栈的栈顶。`la` 是汇编的伪指令，`la sp, bootstacktop` 的作用是把 `bootstacktop` 的地址装入 `sp`。
+
+**完成的操作**：把内核栈栈顶地址 `0x80203000` 设置到栈指针 `sp`。
+
+**目的**：内核需要独立的栈。OpenSBI 跳入内核时，`sp` 仍指向固件阶段使用的栈，内核不能继续使用；栈从高地址向低地址增长，初始时栈为空，因此把 `sp` 指向栈顶。这样后续调用 C 函数时，返回地址和局部变量才有栈空间可保存，即为进入 C 语言运行环境做准备。
+
+实测反汇编：
+
+```asm
+0x80200000 <+0>: auipc sp,0x3     # sp = 0x80200000 + 0x3000 = 0x80203000
+0x80200004 <+4>: mv    sp,sp      # 低位偏移为 0
+```
+
+`la` 被展开为 `auipc` 与 `mv` 两条指令，与源码语义一致。
+
+![kern_entry 反汇编](images/entry_disasm.png)
+
+#### 5.1.3 分析 `tail kern_init`
+
+`kern_init` 是 `kern/init/init.c` 中用 C 语言编写的内核入口，声明为 `__attribute__((noreturn))`，因为它最后进入死循环、不会返回。`tail` 表示尾调用，直接跳转到目标函数且不保存返回地址。
+
+**完成的操作**：跳转到 C 函数 `kern_init`（地址 `0x8020000a`），把控制权交给 C 代码，并且不再返回。
+
+**目的**：汇编只完成最低限度的环境准备（建立内核栈），实际的内核初始化（清空 `.bss`、打印信息）用 C 语言实现更清晰。由于 `kern_init` 不会返回，使用 `tail` 无需保存返回地址；这与普通 `call` 不同，后者会把返回地址写入 `ra`，用于函数返回后继续执行，而此处不需要。
+
+实测反汇编：
+
+```asm
+0x80200008 <+8>: j 0x8020000a <kern_init>
+```
+
+#### 5.1.4 分析 `kern_init()` 的主要功能
+
+`kern_init()` 位于 `kern/init/init.c`，是内核启动后真正开始执行初始化工作的 C 函数，主要包含三步：
+
+1. **清空 `.bss` 段**：`memset(edata, 0, end - edata);`。其中 `edata` 和 `end` 是链接脚本用 `PROVIDE()` 定义的符号，分别表示数据段结束和 BSS 段结束；`.bss` 段存放初始化为 0 的全局变量，需要在启动时清零。由于内核不依赖标准库，`memset` 由 `libs/string.c` 自行实现。
+2. **格式化输出**：`cprintf("%s\n\n", message);`，打印 `(THU.CST) os is loading ...`。`cprintf` 是内核自行实现的格式化输出函数，底层通过 SBI 调用（`ecall` 指令）请求 OpenSBI 输出字符。
+3. **进入死循环**：`while (1);`。最小内核没有其他任务可执行，因此停留在此，这也是该函数被声明为 `noreturn` 的原因。
+
+实测反汇编（关键部分）：
+
+```asm
+0x8020000a: auipc a0,0x3 / addi a0,a0,-2   # a0 = edata = 0x80203008
+0x80200012: auipc a2,0x3 / addi a2,a2,-10  # a2 = end   = 0x80203008
+0x8020001e: sub   a2,a2,a0                 # 长度 = end - edata
+0x80200022: jal   802004ae <memset>        # 调用 memset
+0x80200036: jal   80200056 <cprintf>       # 调用 cprintf
+0x8020003a: j     8020003a                 # while(1)：跳转到自身
+```
+
+在本构建产物中 `edata` 与 `end` 地址相同（均为 `0x80203008`），说明当前没有需要额外清零的 BSS 空间。
+
+![kern_init 反汇编](images/kerninit_disasm.png)
+
+#### 5.1.5 练习一结论
+
+`entry.S` 的三条指令完成了内核进入 C 语言环境所需的最小准备：`la sp, bootstacktop` 把栈指针从固件阶段的旧栈切换到内核栈顶 `0x80203000`，`tail kern_init` 以不保存返回地址的跳转进入 C 入口 `0x8020000a`。进入 `kern_init()` 后，内核依次清空 `.bss`、打印启动信息并进入死循环。
+
+由此可以归纳出内核入口的两个要点：一是必须在内核中重新建立自己的栈，不能沿用固件留下的栈；二是汇编入口只负责最低限度的环境准备，真正的初始化逻辑交给 C 代码完成。上述结论已在编译产物的反汇编中得到静态验证，寄存器级别的动态验证见 5.2 节。
+
+
 
 ### 5.2 练习二：使用 GDB 验证启动流程
 
