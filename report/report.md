@@ -33,8 +33,8 @@
 | 目标架构 | RISC-V 64 位 |
 | 交叉编译工具链 | SiFive RISC-V GNU Toolchain 10.2.0 |
 | 模拟器 | QEMU（RISC-V virt 平台） |
-| 固件 | A：OpenSBI v1.3；C：OpenSBI v0.9 |
-| 调试工具 | A：riscv64-unknown-elf-gdb；C：gdb-multiarch 12.1 |
+| 固件 | A：OpenSBI v1.3；B：OpenSBI v1.3 C：OpenSBI v0.9 |
+| 调试工具 | A：riscv64-unknown-elf-gdb；B：riscv64-linux-gnu C：gdb-multiarch 12.1 |
 | 版本管理 | Git + GitHub |
 
 本组使用的 AI 工具如下：
