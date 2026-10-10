@@ -1,5 +1,23 @@
 # Lab1：最小可执行内核实验报告
 
+## 实验基本信息
+
+| 项目 | 内容 |
+|---|---|
+| 实验名称 | Lab 1：比麻雀更小的麻雀（最小可执行内核） |
+| 小组成员 | 【待填写：学号-姓名、学号-姓名、学号-姓名】 |
+| 完成日期 | 2026-10-10 |
+
+### 小组分工
+
+| 成员 | 负责的练习/模块 |
+|---|---|
+| A【待填写姓名学号】 | Makefile、链接脚本、交叉编译和 GitHub 项目管理 |
+| B【待填写姓名学号】 | 内核启动原理、核心代码和练习一 |
+| C【待填写姓名学号】 | QEMU/GDB 调试、寄存器与指令分析和练习二 |
+
+实验报告由三名成员分别完成本人负责部分，A 负责最终合并，三人共同检查。
+
 ## 一、实验目的
 
 1. 熟悉 RISC-V 64 位操作系统内核的编译、链接与启动过程。
@@ -15,9 +33,17 @@
 | 目标架构 | RISC-V 64 位 |
 | 交叉编译工具链 | SiFive RISC-V GNU Toolchain 10.2.0 |
 | 模拟器 | QEMU（RISC-V virt 平台） |
-| 固件 | OpenSBI v1.3 |
-| 调试工具 | riscv64-unknown-elf-gdb |
+| 固件 | A：OpenSBI v1.3；C：OpenSBI v0.9 |
+| 调试工具 | A：riscv64-unknown-elf-gdb；C：gdb-multiarch 12.1 |
 | 版本管理 | Git + GitHub |
+
+本组使用的 AI 工具如下：
+
+| 成员 | AI 编程工具 | 底层模型 | 备注 |
+|---|---|---|---|
+| A【待填写姓名学号】 | ChatGPT | 【由 A 补充】 | 编译链接与项目管理 |
+| B【待填写姓名学号】 | 【由 B 补充】 | 【由 B 补充】 | 内核启动原理与练习一 |
+| C【待填写姓名学号】 | Codex 桌面应用 | GPT-5 | GDB 调试与练习二 |
 
 ## 三、实验原理
 
@@ -219,7 +245,136 @@ riscv64-unknown-elf-nm -n bin/kernel | grep -E 'kern_entry|kern_init|edata|end|b
 
 ### 5.2 练习二：使用 GDB 验证启动流程
 
-（由 C 组员补充）
+**负责人：** C【待填写姓名学号】
+
+本练习使用 QEMU GDB Stub 和 `gdb-multiarch`，观察 CPU 从复位地址 `0x1000` 出发，经 OpenSBI 初始化后进入 `0x80200000 <kern_entry>`，并验证内核启动栈的建立以及进入 `kern_init` 的过程。
+
+调试前，C 组员已完成 `make` 和 `make qemu`，确认内核能够正常输出启动信息。
+
+![C组员内核运行结果](images/make_qemu.jpg)
+
+#### 5.2.1 调试准备与问题排查
+
+在第一个 Ubuntu 终端进入 `code/` 目录并执行：
+
+```bash
+make debug
+```
+
+在第二个 Ubuntu 终端执行：
+
+```bash
+gdb-multiarch \
+    -ex 'file bin/kernel' \
+    -ex 'set architecture riscv:rv64' \
+    -ex 'target remote localhost:1234'
+```
+
+首次连接时出现 `Connection timed out`。检查 Makefile 后发现，`debug` 目标中 `-kernel` 行末缺少续行反斜杠，导致 `-s -S` 没有作为 QEMU 参数执行。补齐反斜杠后，`-s` 在 1234 端口开启 GDB Stub，`-S` 使虚拟 CPU 在执行第一条指令前暂停。
+
+由于当前 Ubuntu 环境使用 `gdb-multiarch`，Makefile 的 `gdb` 目标使用 `$(GDB)` 变量，可以通过以下命令调用：
+
+```bash
+make gdb GDB=gdb-multiarch
+```
+
+A 和 C 都只修改了 `code/Makefile`：A 将内核加载方式改为 `-kernel $(kernel)`；C 补齐调试命令的续行并适配 `gdb-multiarch`。`kern/`、`libs/` 和 `tools/kernel.ld` 中的内核逻辑没有修改。
+
+#### 5.2.2 观察复位地址 `0x1000`
+
+连接成功后执行：
+
+```gdb
+set pagination off
+info registers pc sp a0 a1 a2
+x/6i $pc
+```
+
+实测初始寄存器为：
+
+```text
+pc = 0x1000
+sp = 0x0
+a0 = 0x0
+a1 = 0x0
+a2 = 0x0
+```
+
+从 `0x1000` 开始的六条指令为：
+
+```asm
+0x1000: auipc t0,0x0
+0x1004: addi  a2,t0,40
+0x1008: csrr  a0,mhartid
+0x100c: ld    a1,32(t0)
+0x1010: ld    t0,24(t0)
+0x1014: jr    t0
+```
+
+其中，`auipc` 取得 PC 相对基址；`addi` 令 `a2` 指向固件所需的动态信息；`csrr` 将当前 hart ID 放入 `a0`；第一条 `ld` 取得设备树地址并放入 `a1`；第二条 `ld` 取得 OpenSBI 入口；`jr t0` 跳转到 OpenSBI。由此可知，`0x1000` 处执行的是 QEMU 提供的复位跳板，而不是 uCore 内核本身。
+
+![GDB复位地址与最初六条指令](images/gdb_reset_0x1000.jpg)
+
+#### 5.2.3 观察内核入口 `0x80200000`
+
+设置断点并继续运行：
+
+```gdb
+break *0x80200000
+continue
+info registers pc sp a0 a1 a2
+disassemble /r kern_entry
+p/x &bootstack
+p/x &bootstacktop
+```
+
+断点命中时得到：
+
+```text
+pc = 0x80200000 <kern_entry>
+sp = 0x80017ee0
+a0 = 0x0
+a1 = 0x87000000
+a2 = 0x7
+```
+
+`a0 = 0` 表示启动 hart 的编号为 0，`a1 = 0x87000000` 是 OpenSBI 传给下一阶段的设备树地址。此时 `sp` 仍是固件阶段使用的栈。
+
+`kern_entry` 的实际反汇编为：
+
+```asm
+0x80200000 <+0>: auipc sp,0x3
+0x80200004 <+4>: mv    sp,sp
+0x80200008 <+8>: j     0x8020000a <kern_init>
+```
+
+符号地址为：
+
+```text
+bootstack    = 0x80201000
+bootstacktop = 0x80203000
+```
+
+逐条执行后的变化如下：
+
+| 状态 | PC | SP | 说明 |
+|---|---|---|---|
+| 命中 `kern_entry` | `0x80200000` | `0x80017ee0` | 仍使用 OpenSBI 的旧栈 |
+| 执行第一条入口指令后 | `0x80200004` | `0x80203000` | SP 切换到 `bootstacktop` |
+| 执行第二条入口指令后 | `0x80200008` | `0x80203000` | SP 保持不变 |
+| 执行跳转后 | `0x8020000a` | `0x80203000` | 进入 `kern_init` |
+
+GDB 将 `0x80203000` 同时显示为相邻全局符号名 `<SBI_CONSOLE_PUTCHAR>`，但 `p/x &bootstacktop` 和 SP 的数值均为 `0x80203000`，因此可以确认启动栈设置成功。
+
+![GDB内核入口与栈切换](images/gdb_kern_entry_0x80200000.jpg)
+
+#### 5.2.4 练习二结论
+
+RISC-V 虚拟机启动后首先从物理地址 `0x1000` 执行 QEMU 复位跳板。最初六条指令准备 hart ID、设备树地址和固件相关参数，并跳转到 OpenSBI。OpenSBI 在机器态完成平台和处理器初始化后，以 S 模式把控制权交给 `0x80200000` 的 `kern_entry`。
+
+在内核入口处，`la sp, bootstacktop` 被展开为实际机器指令，实测使 SP 从固件栈 `0x80017ee0` 变为内核栈顶 `0x80203000`。随后 `tail kern_init` 被链接为不保存返回地址的跳转，PC 进入 `0x8020000a <kern_init>`。以上结果动态验证了“复位跳板 → OpenSBI → 内核入口 → 建立内核栈 → C 入口”的完整启动过程。
+
+本练习使用 AI 的具体提示词、连接超时问题和迭代过程记录在 `prompt.md` 中，所有寄存器值和反汇编均来自实际 GDB 输出。
 
 ## 六、实验总结
 
@@ -227,7 +382,7 @@ riscv64-unknown-elf-nm -n bin/kernel | grep -E 'kern_entry|kern_init|edata|end|b
 
 本实验涉及交叉编译、ELF 文件结构、链接脚本、内核入口、启动栈以及固件与操作系统之间的控制权交接。
 
-通过实际编译和启动，理解了 Makefile 负责组织构建流程、链接脚本负责确定地址布局、QEMU 与 OpenSBI 配合完成内核启动的基本关系。
+通过实际编译和启动，理解了 Makefile 负责组织构建流程、链接脚本负责确定地址布局、QEMU 与 OpenSBI 配合完成内核启动的基本关系。GDB 调试进一步验证了 CPU 从复位地址进入固件、再由固件进入内核的动态过程。
 
 ### 6.2 与操作系统理论知识的联系
 
@@ -243,4 +398,8 @@ riscv64-unknown-elf-nm -n bin/kernel | grep -E 'kern_entry|kern_init|edata|end|b
 
 通过本次实验，认识到操作系统内核开发不仅需要正确编写源代码，还需要保证编译工具链、链接地址、启动固件和模拟器配置之间相互匹配。
 
-特别是在排查内核无法正常启动的问题时，通过对比 ELF 入口地址、QEMU 启动参数和 OpenSBI 输出，逐步确定了问题所在，进一步理解了内核从构建到执行的全过程。
+特别是在排查内核无法正常启动和 GDB 连接超时的问题时，通过对比 ELF 入口地址、QEMU 启动参数、OpenSBI 输出和 Makefile 命令，逐步确定了问题所在，进一步理解了内核从构建到执行的全过程。
+
+### 6.5 AI 协作开发的经验
+
+本实验中，AI 主要用于提供环境配置建议、解释源码与指令、协助定位构建和调试问题，以及整理实验记录。较有效的协作方式是先实际执行命令，再把完整输出和截图交给 AI 分析，随后按建议进行最小修改并重新验证。AI 给出的结论不能替代实验结果，最终仍需由源码、寄存器值、命令输出和截图共同证明。
