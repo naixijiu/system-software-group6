@@ -357,11 +357,11 @@ bootstacktop:
 
 本练习使用 QEMU GDB Stub 和 `gdb-multiarch`，先观察复位地址 `0x1000` 处的跳板代码，再在 `0x80200000 <kern_entry>` 设置断点确认 OpenSBI 已将控制权交给内核，并验证内核启动栈的建立以及进入 `kern_init` 的过程。
 
-调试前，C 组员已完成 `make` 和 `make qemu`，确认内核能够正常输出启动信息。
+调试前，先执行 `make` 和 `make qemu`，确认内核能够正常编译并输出启动信息。
 
-![C组员内核运行结果](images/make_qemu.jpg)
+![内核正常运行结果](images/make_qemu.jpg)
 
-#### 5.2.1 调试准备与问题排查
+#### 5.2.1 调试准备
 
 在第一个 Ubuntu 终端进入 `code/` 目录并执行：
 
@@ -378,15 +378,11 @@ gdb-multiarch \
     -ex 'target remote localhost:1234'
 ```
 
-首次连接时出现 `Connection timed out`。检查 Makefile 后发现，`debug` 目标中 `-kernel` 行末缺少续行反斜杠，导致 `-s -S` 没有作为 QEMU 参数执行。补齐反斜杠后，`-s` 在 1234 端口开启 GDB Stub，`-S` 使虚拟 CPU 在执行第一条指令前暂停。
-
 由于当前 Ubuntu 环境使用 `gdb-multiarch`，Makefile 的 `gdb` 目标使用 `$(GDB)` 变量，可以通过以下命令调用：
 
 ```bash
 make gdb GDB=gdb-multiarch
 ```
-
-A 和 C 都只修改了 `code/Makefile`：A 将内核加载方式改为 `-kernel $(kernel)`；C 补齐调试命令的续行并适配 `gdb-multiarch`。`kern/`、`libs/` 和 `tools/kernel.ld` 中的内核逻辑没有修改。
 
 #### 5.2.2 观察复位地址 `0x1000`
 
