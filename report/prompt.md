@@ -33,9 +33,152 @@ Requirements：通过课程 Page Init、Best-Fit 检查并回归 SLUB；补充�
 
 本次执行记录：基线为 `6cc74ad`，已有实现来自合并分支；本次补充启动直接映射上界检查和 A 的学号注释。验证环境及真实结果见 `report.md` 和本地留存的验证记录。这是本次实际使用的整理版 Prompt，不冒充已有代码最初生成时的 Prompt。
 
-## B（2512558 张爱迪）：功能模块二·任务一、任务二、任务三
+## B（2512558 张爱迪）：功能模块二·任务二:实现Best_Fit连续物理内存分配算法
 
-> 待 B 按 `[PROMPT]`、`[RELY]`、`[GUARANTEE]`、`[SPECIFICATION]` 补充 First-Fit、Best-Fit 和 Buddy System 对应 Prompt。
+### Prompt 1:实现 Best-Fit 分配器
+
+```text
+[PROMPT]
+在 kern/mm/best_fit_pmm.c 中补全标记为 //lab2 function2-2 YOUR CODE 的位置，
+实现完整的 Best-Fit 物理内存管理模块。必须在项目中实际修改该文件，不要只输出
+代码片段。保留文件现有的 basic_check() 和 best_fit_check() 原样，不得修改这两个
+测试函数，也不要修改 default_pmm.c 或其他无关文件。只有在确实缺少声明时才允许
+调整 best_fit_pmm.h。
+
+[RELY]
+当前框架提供：
+- struct Page { int ref; uint64_t flags; unsigned int property; list_entry_t page_link; };
+- free_area_t { list_entry_t free_list; unsigned int nr_free; };
+- Page.property 表示空闲块头页记录的连续页数；
+- PageReserved、PageProperty、SetPageProperty、ClearPageProperty、set_page_ref；
+- list_init、list_add、list_add_before、list_del、list_next、list_prev、list_empty；
+- le2page(le, page_link)；
+- struct pmm_manager 的字段 name、init、init_memmap、alloc_pages、free_pages、
+  nr_free_pages、check；
+- best_fit_check() 直接使用 free_list 和 nr_free 两个名字，因此实现中必须提供
+  与 default_pmm.c 风格一致的 free_area_t free_area 和对应宏。
+
+[GUARANTEE]
+必须交付以下函数或对象：
+static void best_fit_init(void);
+static void best_fit_init_memmap(struct Page *base, size_t n);
+static struct Page *best_fit_alloc_pages(size_t n);
+static void best_fit_free_pages(struct Page *base, size_t n);
+static size_t best_fit_nr_free_pages(void);
+const struct pmm_manager best_fit_pmm_manager;
+同时保留 basic_check() 和 best_fit_check() 的原始内容，不得改动。
+
+[SPECIFICATION]
+best_fit_init：
+Pre-Condition：管理器尚未初始化，free_area 可能是未定义状态。
+Post-Condition：free_list 为空链表，nr_free 为 0。
+
+best_fit_init_memmap：
+Pre-Condition：base 是一段连续页的起始 Page，n > 0，相关页当前处于保留状态。
+Post-Condition：这 n 页的 flags 和 property 被重置，引用计数为 0；base 成为唯一
+空闲块头，property = n，设置 PageProperty；块按地址插入空闲链表，nr_free 增加 n。
+Case 1：链表为空。
+Case 2：新块应插入链表头、中间或尾部。
+Case 3：n <= 0 或描述符状态不符合前置条件时，用 assert 指出错误。
+
+best_fit_alloc_pages：
+Pre-Condition：n > 0。
+Post-Condition：在所有 property >= n 的空闲块中选择 property 最小的块；若大小相同，
+选择链表中地址较小的块。移除被选块；若 property > n，则在 base + n 处建立剩余
+空闲块，设置 property 和 PageProperty，并按地址插入链表；清除被分配块头页的
+PageProperty；nr_free 减少 n；返回被分配块的首个 Page。
+Case 1：n 大于 nr_free，返回 NULL，链表状态不变。
+Case 2：没有 property >= n 的块，返回 NULL，链表状态不变。
+Case 3：刚好相等，整块分配，不产生剩余块。
+Case 4：大于 n，分裂并产生剩余块。
+
+best_fit_free_pages：
+Pre-Condition：base 是已分配连续页的首个 Page，n > 0，相关页不是保留页且不是
+空闲块头。
+Post-Condition：这 n 页恢复为空闲状态，base.property = n，设置 PageProperty；
+按地址插入链表；如果前一个空闲块与 base 首尾相接则合并，如果后一个空闲块与
+当前块首尾相接则合并；合并时只保留一个块头，清除被吸收块头的 PageProperty；
+nr_free 增加 n。
+Case 1：链表为空。
+Case 2：插入链表头、中间或尾部。
+Case 3：只与前块合并。
+Case 4：只与后块合并。
+Case 5：前后都可合并，最终形成一个连续块。
+
+best_fit_nr_free_pages：
+Pre-Condition：管理器已初始化。
+Post-Condition：返回当前空闲页总数 nr_free。
+
+best_fit_pmm_manager：
+name 使用 "best_fit_pmm_manager"，各字段分别绑定上述函数和 best_fit_check。
+Requirements：不修改 basic_check 和 best_fit_check；不使用 malloc；保持空闲链表
+按地址有序；实现必须能通过 -Werror 编译；选择策略必须真的是“最小可用块”，不能
+退化成 First-Fit。
+```
+
+### Prompt 2:切换 Best-Fit 并运行验证
+
+```text
+[PROMPT]
+在本地工作副本中把 kern/mm/pmm.c 的 init_pmm_manager() 从 default_pmm_manager
+临时切换到 best_fit_pmm_manager，运行 Best-Fit 的构建和测试。只做本地验证，
+不要把这个临时切换当作最终合并结果。依次执行 make clean、make qemu 和 make test，
+保存完整日志；如果没有出现预期输出，定位并报告失败点，不要修改 basic_check 或
+best_fit_check。
+
+[RELY]
+pmm.c 已经包含 best_fit_pmm.h；best_fit_pmm_manager 已在任务 05 中定义。
+make qemu 会通过 pmm_init() 调用 init_pmm_manager()、page_init() 和
+check_alloc_page()；make test 会使用 -D ucore_test 重新编译，使 best_fit_check()
+打印 grading 分数。
+
+[GUARANTEE]
+交付 lab2-B/02-best-fit/qemu.log、test.log、validation.md 和本地切换的 pmm.c
+diff 或 patch。validation.md 必须记录命令、预期输出和实际输出。
+
+[SPECIFICATION]
+Pre-Condition：任务 05 已完成；A 的 page_init() 已能提供有效的 pages、npage 和
+初始空闲区，或者 A 已提供可运行的基线。
+Post-Condition：make qemu 输出 memory management: best_fit_pmm_manager 和
+check_alloc_page() succeeded!；make test 输出从 grading: 1 / 6 points 一直到
+grading: 6 / 6 points，没有断言失败。
+Case 1：编译失败，保存第一个真实编译错误，不继续运行。
+Case 2：编译成功但启动时断言失败，保存断言位置和当时的调用阶段。
+Case 3：只拿到 1-5 分，记录缺失的测试项和对应的 free/alloc 行为。
+Case 4：全部通过，保留 QEMU 和测试日志，并准备回滚本地切换。
+Requirements：不改测试函数；不把临时切换和最终 pmm.c 合并混淆；最终提交前
+要能够恢复或交给 A 处理。
+```
+
+### Prompt 3:记录并修复 Best-Fit 或 Buddy 的 bug
+
+```text
+[PROMPT]
+根据用户提供的失败日志或复现命令，定位当前实现中的 bug，做最小修复，并形成
+可提交的 bug 记录。必须先复现问题，再说明根因，再修改相关代码；不得通过删除
+断言、修改测试函数或跳过测试来“修复”问题。修复后必须用同一组命令重新验证。
+本任务只处理一个明确的 bug，不要顺手重构无关代码。
+
+[RELY]
+失败日志路径、复现命令、相关源码文件和测试函数由用户提供。Best-Fit 相关文件是
+kern/mm/best_fit_pmm.c；Buddy 相关文件是 kern/mm/buddy_system_pmm.c 及其测试文件。
+测试函数 basic_check、best_fit_check 是框架测试，不得修改。
+
+[GUARANTEE]
+交付 lab2-B/bugs/bug-XX.md、修复后的源码 diff、修复前日志和修复后日志。
+bug-XX.md 必须包含现象、复现步骤、根因、修改点、影响范围、验证命令和验证结果。
+
+[SPECIFICATION]
+Pre-Condition：失败现象可重复出现，已有原始日志或可重新生成日志。
+Post-Condition：同一复现命令在修复后通过；相关测试函数保持原样；bug 记录足以让
+另一位同学复现和复核。
+Case 1：编译错误，记录错误类型和最小修改。
+Case 2：运行时断言失败，记录断言条件、调用阶段和对应的 Page/空闲链表状态。
+Case 3：Best-Fit 选错块，说明是选择条件、分裂还是链表维护导致的。
+Case 4：释放后没有正确合并，说明前块、后块或双向合并中的哪一个路径出错。
+Requirements：修复范围最小；不引入无关功能；保留修复前后的对照证据；如果一次
+修复引入新问题，也要把迭代过程记录在同一份 bug 文档中。
+```
 
 ## C（2513582 张子芊）：分支任务——GDB 调试页表查询过程
 
