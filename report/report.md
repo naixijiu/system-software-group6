@@ -44,7 +44,7 @@
 | 成员 | 操作系统与开发环境 | 编译、运行和调试工具 |
 |------|--------------------|----------------------|
 | 2513613-李佳凝（A） | Windows + WSL2 Ubuntu 24.04.4 | SiFive GCC-Metal 10.2.0 裸机工具链、QEMU 8.2.2、OpenSBI 1.3 |
-| 2512558-张爱迪（B） | 待 B 填写 | 待 B 填写 |
+| 2512558-张爱迪（B） | Windows 11 + MSYS2 UCRT64，RISC-V 64 位 uCore Lab2 | riscv64-unknown-elf-gcc 16.1.0、Binutils 2.47、QEMU 11.1.2（OpenSBI 1.8.1）、Make 4.4.1 |
 | 2513582-张子芊（C） | Windows + WSL Ubuntu 22.04，RISC-V 64 位 uCore Lab2 | `riscv64-unknown-elf` 工具链、QEMU 4.1.1 调试构建、host GDB、`gdb-multiarch` |
 
 ### 2.2 AI 工具
@@ -52,7 +52,7 @@
 | 成员 | AI 编程工具 | 底层模型 | 备注 |
 |------|------------|---------|------|
 | 2513613-李佳凝（A） | Codex 桌面应用 | 未核验具体模型名称 | 物理内存初始化核对、边界修复、测试和报告整合 |
-| 2512558-张爱迪（B） | 待 B 填写 | 待 B 填写 | 物理页分配算法 |
+| 2512558-张爱迪（B） | Codex 桌面应用 | DeepSeek-V4-pro | 物理内存分配的理解、实现和比较 |
 | 2513582-张子芊（C） | Codex 桌面应用 | GPT-5 | 按四段式设计 Prompt，辅助源码定位、GDB 调试、SLUB 实现与报告整理 |
 
 ---
@@ -148,7 +148,173 @@ OS 可以在启动时接收固件或引导程序提供的内存布局，不必�
 
 **负责人：** 2512558-张爱迪（B）
 
-> 待 B 填写：任务一 First-Fit 分析、任务二 Best-Fit 实现与改进空间、任务三 Buddy System、实际完成内容和测试结果；对应 Prompt 写入 `prompt.md`。
+> 本报告覆盖 First-Fit 理解、Best-Fit 实现与测试、Buddy System 实现与测试，以及三者的比较。
+
+## 一、First-Fit：原理、函数分析与改进空间
+
+### 1.1 基本原理
+
+First-Fit（首次适配）是最直接的连续物理内存分配策略：系统维护一条**按页地址升序**的
+空闲块链表，每个空闲块用其头页的 `property` 字段记录块内页数。分配 n 页时，从链表头
+开始找**第一个** `property >= n` 的块；若该块大于 n 就切出 n 页、剩余部分作为新空闲块
+插回原位。释放时把块按地址插回链表，并尝试与前后物理相邻的空闲块合并，以减少碎片。
+
+### 1.2 数据结构与状态约定
+
+- `struct Page`：`ref`（引用计数）、`flags`（位 0 保留、位 1 空闲块头）、`property`
+  （仅块头有效，等于块内页数）、`page_link`（链表节点）。
+- `free_area_t`：`free_list`（链表头）+ `nr_free`（空闲页总数）。
+- 不变量：链表按地址升序；只有空闲块头页 `property != 0` 且带 `PG_property`；所有块头
+  `property` 之和等于 `nr_free`。
+
+### 1.3 六个核心函数
+
+- `default_init`：`list_init` 空链表、`nr_free = 0`。
+- `default_init_memmap(base, n)`：逐页清 `flags`/`property`/`ref`，`base` 成为块头
+  （`property = n`、置 `PG_property`），按地址插入链表，`nr_free += n`。
+- `default_alloc_pages(n)`：`n > nr_free` 返回 NULL；否则从链头找第一个
+  `property >= n` 的块；`property > n` 时在 `base + n` 处分裂出剩余块；`nr_free -= n`。
+- `default_free_pages(base, n)`：逐页复位，`base` 成新块头按地址插入，用
+  `p + p->property == base`（前相邻）与 `base + base->property == p`（后相邻）判断并合并，
+  `nr_free += n`。
+- `default_nr_free_pages`：返回 `nr_free`。
+- `default_check`：自检链表不变量，并经 `basic_check` 与一组分配/释放/分裂/合并场景验证。
+
+### 1.4 改进空间
+
+- 查找是 O(空闲块数) 的线性扫描；可按大小分桶加速，但会改变数据结构（接近 Buddy 思路）。
+- 分裂没有“最小剩余块”阈值，可能留下 1~2 页的小碎块；可整块分配以减少外碎片。
+- 释放需线性扫描定位插入点；用边界标记可 O(1) 合并，代价是每块多存元数据。
+- 每次从头扫描导致低地址端反复被切小（前端碎片）；可用 next-fit 游标分摊。
+
+结论：First-Fit 的实现简单、无内部碎片，但查找与碎片治理偏弱；其优化大多会改变算法
+类别，本实验不要求，只需理解并在报告中说明。
+
+## 二、Best-Fit：spec、实现、测试与改进空间
+
+### 2.1 spec（实现要求）
+
+Best-Fit 与 First-Fit 的区别只在选择策略：分配 n 页时，遍历整条空闲链表，选择
+**`property >= n` 且 `property` 最小**的块；若多个块大小相同，选地址较小的（即链表中
+先遇到的）。找到后：`property == n` 整块分配；`property > n` 在 `base + n` 处分裂出剩余
+块并插回；清除被分配块头的 `PG_property`；`nr_free -= n`。其余 `init_memmap`、
+`free_pages`（按地址插入 + 前后合并）、`nr_free_pages` 与 First-Fit 同构。
+
+约束：保留 `basic_check()`、`best_fit_check()` 原样；提供 `free_area_t free_area` 与
+`free_list`/`nr_free` 两个宏；注册 `best_fit_pmm_manager`（`name = "best_fit_pmm_manager"`，
+`.check = best_fit_check`）；不能使用 malloc；必须通过 `-Werror`。
+
+### 2.2 实现
+
+`kern/mm/best_fit_pmm.c` 提供 `best_fit_init`、`best_fit_init_memmap`、
+`best_fit_alloc_pages`、`best_fit_free_pages`、`best_fit_nr_free_pages` 和
+`best_fit_pmm_manager`。选择最小块的核心判断是：
+
+```c
+if (p->property >= n && (page == NULL || p->property < page->property))
+    page = p;
+```
+
+因为链表按地址升序，用严格小于比较更新 `page`，相等大小时保留先遇到（地址更小）的块，
+正好满足“最小且地址最小”的语义。分裂与合并复用 First-Fit 的链表操作。
+
+### 2.3 测试与运行结果
+
+`make test` 会以 `-D ucore_test` 编译，触发 `best_fit_check()` 打印评分；其中
+`assert(p0 + 4 == p1)` 专门验证“真的选了最小可用块而不是 First-Fit”。
+
+**Best-Fit 启动**
+
+执行 `make qemu`，预期看到：
+
+```text
+memory management: best_fit_pmm_manager
+check_alloc_page() succeeded!
+```
+
+![](images/bset_fit_boot.png)
+
+**Best-Fit 6 项评分**
+先 `make clean` 再 `make test`，预期看到：
+
+```text
+memory management: best_fit_pmm_manager
+grading: 1 / 6 points
+...
+grading: 6 / 6 points
+check_alloc_page() succeeded!
+```
+
+![](images/best_fit_test_6_6.png)
+
+**Best-Fit 最终评分**
+执行 `make grade GRADE_TMP=../.grade_tmp`，预期看到：
+
+```text
+check page init:     OK
+check best fit:      OK
+Total Score: 20/20
+```
+
+![](./images/best_fit_grade_20_20.png) 
+
+### 2.4 改进空间
+
+- 分配需遍历整条链表，O(空闲块数)，比 First-Fit 更慢（不能提前退出）。
+- 同样没有“最小剩余块”阈值，可能产生小碎块。
+- 释放仍需线性扫描定位插入点。
+- 由于空闲链表按地址有序，“选最小”必然要多扫一遍；可配合按大小分桶来加速，但会改变
+  数据结构类别（与 Buddy System 任务重叠）。
+
+## 三、Buddy System：测试覆盖及运行结果
+
+### 3.1 测试设计（七类行为测试）
+
+`kern/mm/buddy_system_test.c` 的入口 `buddy_system_check()` 依次执行并做结构复核：
+
+| 测试 | 覆盖场景 |
+| --- | --- |
+| `buddy_test_power_of_two` | 分配 1/2/4/8 页，校验地址对齐、`property` 与计数 |
+| `buddy_test_large_block_split` | 先分大块再分小块，校验逐级分裂与不重叠 |
+| `buddy_test_buddy_merge` | 伙伴空闲则合并、伙伴不空闲则不合并，按不同顺序释放 |
+| `buddy_test_mixed_orders` | 交错分配/释放多种阶，校验不重叠、计数一致 |
+| `buddy_test_exhaustion` | 逐页分配直到 NULL，校验不重复、计数归 0、逐块释放 |
+| `buddy_test_unsatisfiable_request` | `alloc_pages(0)` 与超大请求返回 NULL 且不变 |
+| `buddy_test_full_release_restore` | 全部释放后恢复初始空闲页数，并调用 `buddy_check()` |
+
+其中 `buddy_check()` 只验证**结构不变量**（链表结构、块对齐、阶数与 `property` 一致、
+计数一致）；行为正确性由上述七类测试通过公开接口验证。
+
+### 3.2 运行结果
+
+Buddy 需要临时把活动管理器切换为 `buddy_system_pmm_manager` 并接线 `buddy_system_check()`
+（具体步骤见附录 A.5，验证后恢复为 Best-Fit）。
+
+**Buddy 七类测试通过**
+执行 `make qemu`，预期看到：
+
+```text
+memory management: buddy_system_pmm_manager
+check_alloc_page() succeeded!
+buddy_system_check(): PASS
+```
+
+![](images/buddy_system_pass.png)
+
+## 四、First-Fit、Best-Fit、Buddy System 的比较
+
+| 维度 | First-Fit | Best-Fit | Buddy System |
+| --- | --- | --- | --- |
+| 空闲组织 | 单条按地址升序链表 | 单条按地址升序链表 | 按阶分桶，每阶一条链表 |
+| 选择策略 | 第一个 `property >= n` | 最小 `property >= n` | 最小满足阶（2 的幂对齐） |
+| 分配复杂度 | O(块数) 最坏 | O(块数) | O(log N) |
+| 释放复杂度 | O(块数) + O(1) 合并 | O(块数) + O(1) 合并 | O(log N) |
+| 内部碎片 | 无 | 无 | 有（向上取整到 2 的幂） |
+| 外部碎片 | 有，低地址端易碎 | 比 First-Fit 少 | 有，形态不同 |
+| 实现复杂度 | 最低 | 低 | 较高（对齐与伙伴关系） |
+
+三者都实现 `pmm_manager` 的六个接口，切换活动管理器只需改 `init_pmm_manager()` 里的一行
+指针。本实验最终活动管理器为 **Best-Fit**；Buddy 作为扩展实现与测试保留在工程中。
 
 ---
 
