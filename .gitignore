@@ -1,0 +1,6 @@
+code/bin/
+code/obj/
+code/*.log
+code/.qemu.out
+code/.gdb.in
+code/*-handin.tar.gz
