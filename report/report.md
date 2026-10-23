@@ -18,7 +18,7 @@
 | 2512558-张爱迪（B） | First-Fit 分析、Best-Fit 实现、Buddy System |
 | 2513582-张子芊（C） | QEMU/GDB 页表查询调试、SLUB Challenge |
 
-实验报告由三名成员分别完成本人负责的部分，A 负责最终合并与格式检查。本稿已经完成 C 负责的内容，并为 A、B 保留待填写位置。
+实验报告由三名成员分别完成本人负责的部分，A 负责最终合并与格式检查。本稿已补充 A 的初始化、Challenge 和验证记录，并保留 C 的内容；B 的报告部分仍待本人补充。
 
 ---
 
@@ -43,7 +43,7 @@
 
 | 成员 | 操作系统与开发环境 | 编译、运行和调试工具 |
 |------|--------------------|----------------------|
-| 2513613-李佳凝（A） | 待 A 填写 | 待 A 填写 |
+| 2513613-李佳凝（A） | Windows + WSL2 Ubuntu 24.04.4 | SiFive GCC-Metal 10.2.0 裸机工具链、QEMU 8.2.2、OpenSBI 1.3 |
 | 2512558-张爱迪（B） | 待 B 填写 | 待 B 填写 |
 | 2513582-张子芊（C） | Windows + WSL Ubuntu 22.04，RISC-V 64 位 uCore Lab2 | `riscv64-unknown-elf` 工具链、QEMU 4.1.1 调试构建、host GDB、`gdb-multiarch` |
 
@@ -51,7 +51,7 @@
 
 | 成员 | AI 编程工具 | 底层模型 | 备注 |
 |------|------------|---------|------|
-| 2513613-李佳凝（A） | 待 A 填写 | 待 A 填写 | 物理内存初始化与整合 |
+| 2513613-李佳凝（A） | Codex 桌面应用 | 未核验具体模型名称 | 物理内存初始化核对、边界修复、测试和报告整合 |
 | 2512558-张爱迪（B） | 待 B 填写 | 待 B 填写 | 物理页分配算法 |
 | 2513582-张子芊（C） | Codex 桌面应用 | GPT-5 | 按四段式设计 Prompt，辅助源码定位、GDB 调试、SLUB 实现与报告整理 |
 
@@ -61,7 +61,7 @@
 
 ### 3.1 本章节的逻辑主线
 
-本章围绕“内核如何认识、管理并使用内存”展开。首先从设备树取得物理内存范围，排除 OpenSBI、内核和页描述符数组占用的区域；随后把剩余完整页面交给物理内存管理器，并实现连续物理页的分配与回收；在此基础上，内核启用 Sv39 页表，把高虚拟地址映射到实际物理内存；最后可以继续在页级分配器之上构建 SLUB，为内核提供小对象分配能力。
+本章围绕“内核如何认识、管理并使用内存”展开。首先从设备树取得物理内存范围，排除 OpenSBI、内核和页描述符数组占用的区域；随后把剩余完整页面交给物理内存管理器，并实现连续物理页的分配与回收；本框架在进入 C 代码之前已由 `entry.S` 启用 Sv39 启动页表，物理页初始化本身在高虚拟地址下执行；最后可以继续在页级分配器之上构建 SLUB，为内核提供小对象分配能力。
 
 ### 3.2 功能的逐步实现
 
@@ -79,7 +79,68 @@
 
 **负责人：** 2513613-李佳凝（A）
 
-> 待 A 填写：模块功能、涉及函数、实际完成内容、测试结果，以及硬件可用物理内存范围 Challenge；对应 Prompt 写入 `prompt.md` 或 `challenge_prompt.md`。
+#### 模块功能与本次完成范围
+
+以 `6cc74ad` 为基线核对已有 `static void page_init(void)`。该实现已包含在 B 提交及当前合并分支中，本次保留其正确逻辑，补充启动映射上界检查与 `//lab2 function1 2513613` 注释，不将既有实现描述成本次从零生成。保留 Best-Fit 选择、所有课程测试及 C 的 SLUB。
+
+`kern_init()` 先运行 `dtb_init()`，再调用 `pmm_init()`。后者先初始化当前 PMM，再由 `page_init()` 建立页描述符及空闲区，最后运行分配器自检。`entry.S` 已在进入 C 之前启用 Sv39；`page_init()` 不负责开启分页。
+
+#### 初始化步骤与 spec
+
+1. 从 DTB 查询 RAM 起点与大小，固定 `va_pa_offset=PHYSICAL_MEMORY_OFFSET`，检查零值、加法溢出和当前框架支持的 DRAM 起点。
+2. 根据 `entry.S` 的高地址根级叶子映射，限制物理范围不得超过 `[0x80000000,0xc0000000)`。超过该范围需要建立额外映射，本次选择明确终止，避免虚拟地址加偏移回绕。框架的 128 MiB 常量不替代 DTB 实际容量；已实测 256 MiB。
+3. `maxpa=ROUNDDOWN(mem_base+mem_size,PGSIZE)`，`npage=PPN(maxpa)`。`npage` 是上界页号，不是 RAM 页数；RAM 描述符数为 `npage-nbase`。
+4. `pages_pa=ROUNDUP(PADDR(end),PGSIZE)`，`pages=pages_pa+va_pa_offset`。先检查数组能放入 RAM，再初始化每项的引用计数、标志、property、链表，并标为保留。
+5. `freemem=ROUNDUP(pages_pa+(npage-nbase)*sizeof(struct Page),PGSIZE)`；没有完整空闲页时终止，避免调用要求 `n>0` 的 `init_memmap()`。
+6. 只登记 `[freemem,maxpa)`。当前 PMM 的 `init_memmap()` 清除这些页面的保留标志并建立空闲块，OpenSBI、内核、描述符及对齐空间继续保留。
+
+前置条件是 DTB 与 PMM 初始化完成、RAM 符合当前单段布局；后置条件是全局状态正确、已用页保留、完整空闲页可分配。四段式 spec/prompt 记录在 `prompt.md`。
+
+#### 地址与描述符的关系
+
+| 对象 | 转换关系 |
+|---|---|
+| 内核虚拟地址 VA 与物理地址 PA | `VA=PA+va_pa_offset`，反向使用 `PADDR(VA)` |
+| 物理页号 | `PPN(PA)=PA>>12`，低 12 位为页内偏移 |
+| 描述符数组索引 | `PPN(PA)-nbase` |
+| 物理地址到描述符 | `pa2page(PA)=&pages[PPN(PA)-nbase]`，调用者必须保证 PA 在 RAM 范围内 |
+| 描述符到页基址 | `page2pa(p)=(p-pages+nbase)<<12`；不恢复原地址页内偏移 |
+
+#### 本次 128 MiB 实测布局
+
+以下为本次正常构建的输出，不是评分注入后镜像的固定地址。`sizeof(struct Page)=40`，`npage=0x88000`，`nbase=0x80000`，描述符数 `32768`，数组占 `0x140000` 字节。
+
+| 物理区间（左闭右开） | 用途 |
+|---|---|
+| `[0x80000000,0x80200000)` | 框架保留的固件/启动区域，保守保留 2 MiB，不等于固件实际大小 |
+| `[0x80200000,0x8020622c)` | 内核镜像、启动栈、页表及静态数据至 end |
+| `[0x8020622c,0x80207000)` | 内核尾部对齐空间 |
+| `[0x80207000,0x80347000)` | Page 描述符数组 |
+| `[0x80347000,0x88000000)` | 初始空闲区，共 31929 页 |
+
+`pages` 的虚拟地址为 `0xffffffffc0207000`。编译器、代码或测试注入变化会改变 end 和数组位置，应以对应日志为准。
+
+#### 实际问题与修复
+
+- **启动映射边界缺少检查**：既有实现按 DTB 全部容量登记，超过根级 1 GiB 直接映射后可能生成无效/回绕虚拟地址。本次在写描述符前增加检查。独立临时副本将 `get_memory_size()` 返回值注入为 1 GiB+4096，实际 QEMU RAM 仍为 128 MiB，实测出现预期 panic，未登记空闲页。该验证属于故障注入，不是实际大内存机器测试。
+- **工具链环境不一致**：默认工具链未在 PATH，最初尝试 Linux 交叉编译器后，镜像停在 OpenSBI 输出后。反汇编显示启动前使用 GOT 中的高虚拟地址，定位为该构建与裸机启动方式不兼容；切换本机已有 SiFive 裸机工具链后启动正常，无需修改 B、C 代码。
+- **评分脚本 CRLF**：Windows 检出产生 CRLF，WSL 执行报 `\r: not found` 和语法错误。仅将工作副本 `tools/grade.sh` 换行为 LF，未改变测试内容，之后评分 20/20。
+- **时间戳警告**：WSL 访问 Windows 文件系统时构建出现小于一秒的 clock skew 警告。完整干净构建退出 0，后续运行和评分通过；保留原始日志，不把警告隐藏或写成零警告。
+
+#### Challenge 1：OS 如何获得硬件可用物理内存范围
+
+OS 可以在启动时接收固件或引导程序提供的内存布局，不必预先写死容量。需要区分“物理 RAM 存在于此处”和“此处当前可以交给分配器”：固件、内核、启动信息、保留区以及内存空洞都需要另行处理。
+
+| 方法 | 适用环境与信息来源 | OS 的使用方式 |
+|---|---|---|
+| DTB | 本实验的 RISC-V/QEMU 启动流程 | 取得 DTB 地址，解析 memory 节点的 reg 地址/大小，再考虑保留信息。DTB 也可描述多段 RAM；本实验解析器只取首段，不能声称支持完整多段布局。[Devicetree 规范](https://devicetree-specification.readthedocs.io/en/stable/devicenodes.html) |
+| BIOS E820 | 传统 x86 BIOS | 在适用启动阶段调用 INT 15h、E820h，逐项取得地址、长度及类型；正常 RAM 和保留范围区别处理。[ACPI 系统地址映射规范](https://uefi.org/specs/ACPI/6.5/15_System_Address_Map_Interfaces.html) |
+| UEFI GetMemoryMap | UEFI 平台 | OS loader 查询带类型的内存描述符，获取最新 map key 配合 ExitBootServices，按类型和生命周期决定可回收页面，不能把所有描述符都当空闲页。[UEFI Boot Services](https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html) |
+| 引导协议传递映射 | 例如 GRUB/Multiboot | 引导程序把收集到的地址、长度、类型列表交给内核；内核读取并排除自身和引导模块占用。[Multiboot 规范](https://www.gnu.org/software/grub/manual/multiboot/html_node/Boot-information-format.html) |
+
+直接向未知物理地址试写不能可靠替代内存映射：未知地址可能是 MMIO、受保护区域或有副作用的设备寄存器，也可能破坏已有数据。该判断是基于地址空间可能包含设备与保留区的分析，本实验没有执行破坏性试写。
+
+本实验实际验证的是 DTB 方案；E820、UEFI 和 Multiboot 属于资料分析，没有实现或动态验证。当前简化 dtb.c 不是通用 FDT 校验器，也未完整处理 reserved-memory、保留表或 DTB 自身占用的通用扣除；因此测试通过不能解释为适用于任意真实硬件。本次遵守课程单段内存框架，未扩大为通用硬件内存管理器。
 
 ---
 
@@ -255,7 +316,33 @@ void slub_check(void);
 
 ### 5.1 A：物理内存初始化与硬件内存探测
 
-> 待 A 补充本人负责部分的测试方法、关键输出和必要截图。
+本次验证使用 WSL2 Ubuntu 24.04.4、SiFive GCC-Metal 10.2.0、QEMU 8.2.2 和其默认 OpenSBI 1.3；与 C 的 QEMU 4.1.1 调试环境分别记录。
+
+| 检查 | 实测结果 | 证据 |
+|---|---|---|
+| make clean；make -j2 | 构建退出 0，保留 clock skew 警告 | 构建日志（本地留档） |
+| QEMU 64 MiB | 15705 初始空闲页，PMM 检查及 SLUB 通过 | 64 MiB（本地留档） |
+| QEMU 128 MiB | 31929 初始空闲页，PMM 检查及 SLUB 通过 | 128 MiB（本地留档） |
+| QEMU 256 MiB | 64377 初始空闲页，PMM 检查及 SLUB 通过 | 256 MiB（本地留档） |
+| 超出启动映射的故障注入 | 独立副本输出指定 panic，未登记空闲区 | 边界日志（本地留档） |
+| make grade | Page Init OK、Best-Fit OK、20/20，退出 0 | 评分日志（本地留档） |
+
+正常 QEMU 启动后内核进入框架的无限循环，脚本在 5 秒后结束进程并标记状态 124；这是限时采集日志，不是将其冒充正常退出。成功依据为实际 PMM/SLUB 标志和无 panic。课程 Page Init 包含偏移、npage、描述符对齐、空闲计数、内核/数组保留及往返转换检查。
+
+复现基础测试：在 WSL 的工程 `code/` 目录配置好课程工具链后，依次执行 `make clean`、`make -j2`、`make qemu` 和 `make grade`。Windows 检出后须保证 `tools/grade.sh` 为 LF。原始日志与辅助验证脚本单独在本地留档，不作为报告目录中的提交文件。下方为实验者实际运行时截取的终端图片；未动态覆盖每个 panic 分支。
+
+注意：基础评分只覆盖当前 Page Init/Best-Fit；SLUB 由其自检回归，不能据此宣称 Buddy System 已完成。
+
+
+#### A 的终端运行截图
+
+实验者在桌面 `lab2/lab2-a-work/code` 工作目录中运行内核，得到以下真实终端截图。物理内存范围为 `[0x80000000,0x88000000)`，初始空闲区为 `[0x80347000,0x88000000)`，共 31929 页；当前管理器为 Best-Fit，物理页分配自检和 SLUB 自检均通过，与上文 128 MiB 日志一致。
+
+![A：128 MiB 物理内存初始化、Best-Fit 与 SLUB 自检](images/a-page-init.png)
+
+实验者随后在同一工作目录执行 `make grade`。截图显示 Page Init 和 Best-Fit 均为 `OK`，总分为 `20/20`。终端保留了轻微时间戳警告；评分结果以实际检查项为准，不将警告描述为测试失败，也不据此宣称未覆盖的任务已经完成。
+
+![A：make grade 课程评分 20/20](images/a-grade.png)
 
 ### 5.2 B：First-Fit、Best-Fit 与 Buddy System
 
@@ -331,7 +418,7 @@ OS 原理中重要但本实验没有完整覆盖的内容包括：多进程独�
 
 ## 待合并检查
 
-- [ ] A 完成物理内存初始化、Challenge、测试结果和对应 Prompt。
+- [x] A 完成物理内存初始化核对与边界修复、Challenge、测试结果和对应 Prompt。
 - [ ] B 完成 First-Fit、Best-Fit、Buddy System、测试结果和对应 Prompt。
 - [x] C 完成 QEMU 页表调试、SLUB Challenge、测试、截图和 Prompt。
 - [ ] 三人统一检查所有测试、图片相对路径和 Git 提交内容。

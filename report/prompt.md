@@ -2,7 +2,36 @@
 
 ## A（2513613 李佳凝）：功能模块一·任务一——物理内存探测与页描述符初始化
 
-> 待 A 按 `[PROMPT]`、`[RELY]`、`[GUARANTEE]`、`[SPECIFICATION]` 补充。
+### Prompt：核对、完善并验证物理内存初始化
+
+```text
+[PROMPT]
+任务：以仓库最新 lab2 分支为基础，按指导书完成功能模块一·任务一。检查已有 page_init()，正确部分保留，仅修复必要内容，不用旧版 lab2_new 覆盖 B、C 的成果。
+操作要求：保留 Best-Fit 管理器选择、分配算法、SLUB 接入和课程测试；保留 lab2 注释，将 A 负责位置的 YOUR CODE 替换为 2513613。本次只修改和验证本地副本，不提交或推送 GitHub。
+输出要求：完成干净构建、QEMU 运行、make grade，记录真实输出；补充 A 的报告、内存布局、地址关系和实际 bug/修复过程，未验证内容明确标注。
+
+[RELY]
+工程：code/；主要文件：kern/mm/pmm.c、pmm.h、memlayout.h、mmu.h，kern/driver/dtb.c、dtb.h，kern/init/entry.S、init.c，tools/test_lab2.c。
+接口：get_memory_base()、get_memory_size()、PADDR()、pa2page()、init_memmap()、panic()、cprintf()。
+PGSIZE=4096；nbase=DRAM_BASE/PGSIZE；va_pa_offset=PHYSICAL_MEMORY_OFFSET。
+dtb_init() 先于 pmm_init()；当前 PMM 为 best_fit_pmm_manager。
+
+[GUARANTEE]
+正确设置 va_pa_offset、npage、pages；检查无效 DTB 范围、溢出、启动映射边界和内存不足。
+描述符数组在 end 后按页对齐，包含 npage-nbase 项；初始化各字段并先将所有页面标为保留。
+排除 OpenSBI、内核、描述符数组和对齐空间，只登记完整空闲页。
+保持地址转换、Best-Fit 和 SLUB 行为正确，不修改测试或伪造结果。
+
+[SPECIFICATION]
+## page_init
+Pre-Condition：DTB 和 PMM 管理器已初始化；当前框架为以 DRAM_BASE 开始的单段 RAM。
+Post-Condition：maxpa=ROUNDDOWN(mem_base+mem_size,PGSIZE)，npage=PPN(maxpa)；pages 在 end 后页对齐，数组长度为 npage-nbase；freemem 为数组末尾向上按页对齐的物理地址；通过 init_memmap(pa2page(freemem),(maxpa-freemem)/PGSIZE) 注册空闲页。
+Case 1：合法且内存充足时，输出内存范围、空闲范围和页数。
+Case 2：无效信息、未映射范围或内存不足时终止初始化；无完整空闲页时不得调用 init_memmap()。
+Requirements：通过课程 Page Init、Best-Fit 检查并回归 SLUB；补充不同 RAM 大小验证。异常分支可在独立副本注入输入验证，不能更改正式代码或课程测试来制造通过。
+```
+
+本次执行记录：基线为 `6cc74ad`，已有实现来自合并分支；本次补充启动直接映射上界检查和 A 的学号注释。验证环境及真实结果见 `report.md` 和本地留存的验证记录。这是本次实际使用的整理版 Prompt，不冒充已有代码最初生成时的 Prompt。
 
 ## B（2512558 张爱迪）：功能模块二·任务一、任务二、任务三
 

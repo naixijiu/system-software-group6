@@ -2,7 +2,23 @@
 
 ## A（2513613 李佳凝）：功能模块一·Challenge——硬件可用物理内存范围
 
-> 待 A 按 `[PROMPT]`、`[RELY]`、`[GUARANTEE]`、`[SPECIFICATION]` 四段式补充。
+### Prompt：硬件可用物理内存范围（思考题）
+
+```text
+[PROMPT]
+任务：回答 OS 无法提前知道硬件可用物理内存范围时，可以通过哪些方式获取；结合当前实验写入报告，无需实现新模块。
+
+[RELY]
+本实验由启动流程传递 DTB 地址，dtb_init() 解析 memory 节点，get_memory_base()/get_memory_size() 向 page_init() 提供 RAM 范围。
+
+[GUARANTEE]
+说明 DTB、BIOS E820、UEFI GetMemoryMap 和引导程序传递内存映射；区分硬件 RAM 与排除固件、内核及保留区后的可分配页面，说明盲目读写探测的风险。
+
+[SPECIFICATION]
+Pre-Condition：依据真实工程和官方资料。
+Post-Condition：给出各方式的适用平台、信息来源、OS 使用方法和引用。
+Requirements：标明本实验仅使用 DTB；其他方法是资料分析，不声称完成实现或实测。
+```
 
 ## B（2512558 张爱迪）
 

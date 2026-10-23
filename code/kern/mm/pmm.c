@@ -61,6 +61,7 @@ size_t nr_free_pages(void) {
     return pmm_manager->nr_free_pages();
 }
 
+//lab2 function1 2513613
 static void page_init(void) {
     extern char end[];
     uint64_t mem_base = get_memory_base();
@@ -82,7 +83,13 @@ static void page_init(void) {
     cprintf("Physical memory: [0x%016lx, 0x%016lx)\n",
             mem_base, mem_end);
 
-    /* Follow the memory range reported by the DTB instead of a fixed cap. */
+    /* entry.S maps one 1 GiB leaf at VPN2=511. Larger RAM needs new mappings;
+     * adding va_pa_offset beyond this leaf would wrap the virtual address. */
+    if (mem_end > DRAM_BASE + (1UL << 30)) {
+        panic("page_init: RAM exceeds boot direct mapping");
+    }
+
+    /* Follow the DTB within the verified boot mapping, not a fixed 128 MiB cap. */
     uintptr_t maxpa = ROUNDDOWN(mem_end, PGSIZE);
 
     if (maxpa <= KERNEL_BEGIN_PADDR) {
