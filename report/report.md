@@ -585,6 +585,6 @@ OS 原理中重要但本实验没有完整覆盖的内容包括：多进程独�
 ## 待合并检查
 
 - [x] A 完成物理内存初始化核对与边界修复、Challenge、测试结果和对应 Prompt。
-- [ ] B 完成 First-Fit、Best-Fit、Buddy System、测试结果和对应 Prompt。
+- [x] B 完成 First-Fit、Best-Fit、Buddy System、测试结果和对应 Prompt。
 - [x] C 完成 QEMU 页表调试、SLUB Challenge、测试、截图和 Prompt。
 - [ ] 三人统一检查所有测试、图片相对路径和 Git 提交内容。
