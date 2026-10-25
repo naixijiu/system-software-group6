@@ -18,7 +18,7 @@
 | 2512558-张爱迪（B） | First-Fit 分析、Best-Fit 实现、Buddy System |
 | 2513582-张子芊（C） | QEMU/GDB 页表查询调试、SLUB Challenge |
 
-实验报告由三名成员分别完成本人负责的部分，A 负责最终合并与格式检查。本稿已补充 A 的初始化、Challenge 和验证记录，并保留 C 的内容；B 的报告部分仍待本人补充。
+实验报告由三名成员分别完成本人负责的部分，A 负责最终合并与格式检查。当前版本已合并 A、B、C 的实现说明、Challenge、Prompt、测试结果和必要截图。
 
 ---
 
@@ -150,16 +150,16 @@ OS 可以在启动时接收固件或引导程序提供的内存布局，不必�
 
 > 本报告覆盖 First-Fit 理解、Best-Fit 实现与测试、Buddy System 实现与测试，以及三者的比较。
 
-## 一、First-Fit：原理、函数分析与改进空间
+#### 任务一：First-Fit 原理、函数分析与改进空间
 
-### 1.1 基本原理
+##### 1.1 基本原理
 
 First-Fit（首次适配）是最直接的连续物理内存分配策略：系统维护一条**按页地址升序**的
 空闲块链表，每个空闲块用其头页的 `property` 字段记录块内页数。分配 n 页时，从链表头
 开始找**第一个** `property >= n` 的块；若该块大于 n 就切出 n 页、剩余部分作为新空闲块
 插回原位。释放时把块按地址插回链表，并尝试与前后物理相邻的空闲块合并，以减少碎片。
 
-### 1.2 数据结构与状态约定
+##### 1.2 数据结构与状态约定
 
 - `struct Page`：`ref`（引用计数）、`flags`（位 0 保留、位 1 空闲块头）、`property`
   （仅块头有效，等于块内页数）、`page_link`（链表节点）。
@@ -167,7 +167,7 @@ First-Fit（首次适配）是最直接的连续物理内存分配策略：系�
 - 不变量：链表按地址升序；只有空闲块头页 `property != 0` 且带 `PG_property`；所有块头
   `property` 之和等于 `nr_free`。
 
-### 1.3 六个核心函数
+##### 1.3 六个核心函数
 
 - `default_init`：`list_init` 空链表、`nr_free = 0`。
 - `default_init_memmap(base, n)`：逐页清 `flags`/`property`/`ref`，`base` 成为块头
@@ -180,7 +180,7 @@ First-Fit（首次适配）是最直接的连续物理内存分配策略：系�
 - `default_nr_free_pages`：返回 `nr_free`。
 - `default_check`：自检链表不变量，并经 `basic_check` 与一组分配/释放/分裂/合并场景验证。
 
-### 1.4 改进空间
+##### 1.4 改进空间
 
 - 查找是 O(空闲块数) 的线性扫描；可按大小分桶加速，但会改变数据结构（接近 Buddy 思路）。
 - 分裂没有“最小剩余块”阈值，可能留下 1~2 页的小碎块；可整块分配以减少外碎片。
@@ -190,9 +190,9 @@ First-Fit（首次适配）是最直接的连续物理内存分配策略：系�
 结论：First-Fit 的实现简单、无内部碎片，但查找与碎片治理偏弱；其优化大多会改变算法
 类别，本实验不要求，只需理解并在报告中说明。
 
-## 二、Best-Fit：spec、实现、测试与改进空间
+#### 任务二：Best-Fit 的 spec、实现、测试与改进空间
 
-### 2.1 spec（实现要求）
+##### 2.1 spec（实现要求）
 
 Best-Fit 与 First-Fit 的区别只在选择策略：分配 n 页时，遍历整条空闲链表，选择
 **`property >= n` 且 `property` 最小**的块；若多个块大小相同，选地址较小的（即链表中
@@ -204,7 +204,7 @@ Best-Fit 与 First-Fit 的区别只在选择策略：分配 n 页时，遍历整
 `free_list`/`nr_free` 两个宏；注册 `best_fit_pmm_manager`（`name = "best_fit_pmm_manager"`，
 `.check = best_fit_check`）；不能使用 malloc；必须通过 `-Werror`。
 
-### 2.2 实现
+##### 2.2 实现
 
 `kern/mm/best_fit_pmm.c` 提供 `best_fit_init`、`best_fit_init_memmap`、
 `best_fit_alloc_pages`、`best_fit_free_pages`、`best_fit_nr_free_pages` 和
@@ -218,24 +218,24 @@ if (p->property >= n && (page == NULL || p->property < page->property))
 因为链表按地址升序，用严格小于比较更新 `page`，相等大小时保留先遇到（地址更小）的块，
 正好满足“最小且地址最小”的语义。分裂与合并复用 First-Fit 的链表操作。
 
-### 2.3 测试与运行结果
+##### 2.3 测试与运行结果
 
 `make test` 会以 `-D ucore_test` 编译，触发 `best_fit_check()` 打印评分；其中
 `assert(p0 + 4 == p1)` 专门验证“真的选了最小可用块而不是 First-Fit”。
 
 **Best-Fit 启动**
 
-执行 `make qemu`，预期看到：
+执行 `make qemu`，实际输出包括：
 
 ```text
 memory management: best_fit_pmm_manager
 check_alloc_page() succeeded!
 ```
 
-![](images/bset_fit_boot.png)
+![Best-Fit 启动与物理页分配检查](images/best_fit_boot.png)
 
 **Best-Fit 6 项评分**
-先 `make clean` 再 `make test`，预期看到：
+先执行 `make clean`，再执行 `make test`，实际输出包括：
 
 ```text
 memory management: best_fit_pmm_manager
@@ -245,10 +245,10 @@ grading: 6 / 6 points
 check_alloc_page() succeeded!
 ```
 
-![](images/best_fit_test_6_6.png)
+![Best-Fit 六项测试通过](images/best_fit_test_6_6.png)
 
 **Best-Fit 最终评分**
-执行 `make grade GRADE_TMP=../.grade_tmp`，预期看到：
+执行 `make grade GRADE_TMP=../.grade_tmp`，实际输出包括：
 
 ```text
 check page init:     OK
@@ -256,9 +256,9 @@ check best fit:      OK
 Total Score: 20/20
 ```
 
-![](./images/best_fit_grade_20_20.png) 
+![Best-Fit 课程评分 20/20](images/best_fit_grade_20_20.png)
 
-### 2.4 改进空间
+##### 2.4 改进空间
 
 - 分配需遍历整条链表，O(空闲块数)，比 First-Fit 更慢（不能提前退出）。
 - 同样没有“最小剩余块”阈值，可能产生小碎块。
@@ -266,9 +266,9 @@ Total Score: 20/20
 - 由于空闲链表按地址有序，“选最小”必然要多扫一遍；可配合按大小分桶来加速，但会改变
   数据结构类别（与 Buddy System 任务重叠）。
 
-## 三、Buddy System：测试覆盖及运行结果
+#### 任务三：Buddy System 测试覆盖及运行结果
 
-### 3.1 测试设计（七类行为测试）
+##### 3.1 测试设计（七类行为测试）
 
 `kern/mm/buddy_system_test.c` 的入口 `buddy_system_check()` 依次执行并做结构复核：
 
@@ -285,13 +285,13 @@ Total Score: 20/20
 其中 `buddy_check()` 只验证**结构不变量**（链表结构、块对齐、阶数与 `property` 一致、
 计数一致）；行为正确性由上述七类测试通过公开接口验证。
 
-### 3.2 运行结果
+##### 3.2 运行结果
 
 Buddy 需要临时把活动管理器切换为 `buddy_system_pmm_manager` 并接线 `buddy_system_check()`
 （具体步骤见附录 A.5，验证后恢复为 Best-Fit）。
 
 **Buddy 七类测试通过**
-执行 `make qemu`，预期看到：
+执行 `make qemu`，实际输出包括：
 
 ```text
 memory management: buddy_system_pmm_manager
@@ -299,9 +299,9 @@ check_alloc_page() succeeded!
 buddy_system_check(): PASS
 ```
 
-![](images/buddy_system_pass.png)
+![Buddy System 七类测试通过](images/buddy_system_pass.png)
 
-## 四、First-Fit、Best-Fit、Buddy System 的比较
+#### First-Fit、Best-Fit、Buddy System 的比较
 
 | 维度 | First-Fit | Best-Fit | Buddy System |
 | --- | --- | --- | --- |
@@ -512,7 +512,15 @@ void slub_check(void);
 
 ### 5.2 B：First-Fit、Best-Fit 与 Buddy System
 
-> 待 B 补充本人负责部分的测试方法、关键输出和必要截图。
+| 检查 | 实测结果 | 证据 |
+|---|---|---|
+| First-Fit 源码与不变量分析 | 完成六个核心函数、链表顺序及分裂合并逻辑分析 | 功能模块二·任务一 |
+| Best-Fit：make qemu | best_fit_pmm_manager 启动，check_alloc_page() succeeded | Best-Fit 启动截图 |
+| Best-Fit：make test | 六项评分全部通过，grading: 6 / 6 points | Best-Fit 六项测试截图 |
+| Best-Fit：make grade | Page Init 与 Best-Fit 均为 OK，总分 20/20 | Best-Fit 评分截图 |
+| Buddy System：make qemu | 物理页检查通过，buddy_system_check(): PASS | Buddy System 测试截图 |
+
+上述截图和具体测试场景已放在功能模块二对应任务中，本节不重复插图。Buddy System 验证时临时切换活动管理器，验证完成后恢复 Best-Fit 作为最终活动管理器。
 
 ### 5.3 C：QEMU/GDB 调试与 SLUB Challenge
 
@@ -581,10 +589,3 @@ OS 原理中重要但本实验没有完整覆盖的内容包括：多进程独�
 4. **根据反馈修正，而不是掩盖问题**：编译错误、运行异常和断点未命中都应先定位原因，再调整代码或 Prompt；不能通过删除断言、修改既有测试或直接填写预期输出来制造通过结果。
 5. **区分动态证据、源码分析和推断**：终端输出、调用栈和变量值属于动态证据；没有实际命中的路径只能写为源码分析。报告中应明确这种区别，使结论能够被其他成员和助教复查。
 6. **统一合并规范**：每名成员负责填写自己的环境、实现说明、Prompt 和测试结果，最终合并时统一标题、图片路径、接口名称和术语，并重新执行完整测试，确认单独正确的模块组合后仍能正常工作。
-
-## 待合并检查
-
-- [x] A 完成物理内存初始化核对与边界修复、Challenge、测试结果和对应 Prompt。
-- [x] B 完成 First-Fit、Best-Fit、Buddy System、测试结果和对应 Prompt。
-- [x] C 完成 QEMU 页表调试、SLUB Challenge、测试、截图和 Prompt。
-- [ ] 三人统一检查所有测试、图片相对路径和 Git 提交内容。
