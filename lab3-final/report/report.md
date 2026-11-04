@@ -177,15 +177,15 @@ B 的代码已合入并通过联合测试。本节按个人理解补充核心函
 
 **图 1：A 汇编对象编译成功。**
 
-![A 汇编对象编译成功](图片/a01-object-build.png)
+![A 汇编对象编译成功](images/a01-object-build.png)
 
 **图 2：CSR 恢复及最后加载原始 sp。** 图中未显示下一行 sret；已另外核查实际对象，确认该指令存在。
 
-![CSR 与 sp 恢复顺序](图片/a02-csr.png)
+![CSR 与 sp 恢复顺序](images/a02-csr.png)
 
 **图 3：TrapFrame 布局检查通过。**
 
-![TrapFrame 布局检查通过](图片/a03-layout.png)
+![TrapFrame 布局检查通过](images/a03-layout.png)
 
 ### 2026-11-03 联合验证
 
@@ -221,7 +221,7 @@ Total Score: 100/100
 
 **图 4：本机运行标准 make grade，三项测试全部通过，总分 100/100。**
 
-![联合评分三项通过，总分100分](图片/a04-grade-pass.png)
+![联合评分三项通过，总分100分](images/a04-grade-pass.png)
 
 Test 1 验证了 A 与 B 的接口：A 传入帧地址，B 修正断点 epc，A 从处理后的帧恢复 sepc 并返回。测试覆盖多组寄存器，不能据此宣称全部寄存器、CSR、嵌套异常及所有指令长度均已动态穷尽。
 
