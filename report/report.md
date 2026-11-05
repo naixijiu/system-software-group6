@@ -6,8 +6,8 @@
 |------|------|
 | 实验名称 | Lab3：中断与异常处理 |
 | 小组成员 | 2513613-李佳凝、2512558-张爱迪、2513582-张子芊 |
-| 当前阶段 | A/B/C 代码已联合验证，make grade 100/100（2026-11-03） |
-| Challenge | 助教已明确今年无需完成 |
+| 完成日期 | 2026-11-05 |
+| 验证结果 | A/B/C 代码已联合验证，make grade 100/100（2026-11-03） |
 
 ### 小组分工
 
@@ -17,7 +17,7 @@
 | 2512558-张爱迪 | interrupt_handler()、exception_handler() |
 | 2513582-张子芊 | 两项练习的 spec/Prompt 设计、Lab2 迁移、集成验收与报告合并 |
 
-本报告保留 C 的原稿并合入 A 的实现、截图和实际联合测试结果。B 的个人报告部分由本人补充。
+实验报告由三位成员分别完成所负责模块的实现说明与问题记录，C 负责整合整体逻辑、Prompt、测试结果并统一格式。
 
 ---
 
@@ -53,7 +53,7 @@
 3. B 实现 interrupt_handler() 和 exception_handler()，对事件进行分类、输出与返回位置修正。
 4. 最后通过寄存器恢复、非法指令返回和持续时钟中断三组评分测试完成集成验收。
 
-返回地址以保存的 sepc 为准。需要重试的异常保留 epc，需要跳过的异常由 B 按实际指令长度更新 epc；普通中断不额外增加 epc。A 只恢复处理后的地址。
+返回地址以保存的 sepc 为准。按助教补充说明，中断在当前指令执行完成后才跳转，硬件保存的 sepc 已经是下一条指令的逻辑地址，因此处理程序不再手动增加 4。需要重试的异常保留当前 epc；无需重试且可以继续执行的异常，由 B 按实际指令长度更新 epc。A 只负责恢复处理后的地址。
 
 ---
 
@@ -74,7 +74,7 @@ C 将 Lab2 的 `page_init()` 和 Best-Fit 管理器迁移到 Lab3，同时保留
 
 #### spec 与 Prompt 设计
 
-spec 作为可验收实现合同，为每个主要函数明确 Pre-Condition、Post-Condition、Case 和 Requirements。Prompt 按 `[PROMPT]`、`[RELY]`、`[GUARANTEE]`、`[SPECIFICATION]` 四部分组织，只使用已从真实项目核对的路径、接口、布局和评分关键字。C 设计的 Spec 与 Prompt 保留在本目录 `prompt.md`，后续按真实反馈更新。
+spec 作为可验收实现合同，为每个主要函数明确 Pre-Condition、Post-Condition、Case 和 Requirements。Prompt 按 `[PROMPT]`、`[RELY]`、`[GUARANTEE]`、`[SPECIFICATION]` 四部分组织，只使用已从真实项目核对的路径、接口、布局和评分关键字。最终 Spec 与 Prompt 保存在本目录 `prompt.md`。
 
 #### 实现迭代过程
 
@@ -115,7 +115,7 @@ A 从处理后的帧恢复 sepc；断点/非法指令该跳过多少字节由 B 
 
 #### 问题与处理
 
-A 实现未出现需返修的功能 bug。早期因工具链不在 PATH、B 的 handler 尚未实现而无法完成整工程验证；配置已有工具链并收到 B 的代码后，现已通过完整构建与联合评分。没有添加空 handler 或修改评分判据。
+A 实现未出现需返修的功能 bug。完成工具链配置和模块集成后，`trapentry.S` 对象编译、整工程构建与联合评分均通过；验证过程中没有添加空 handler 或修改评分判据。
 
 #### 原理理解
 
@@ -125,7 +125,7 @@ Trap 由硬件记录关键 CSR，软件保存并恢复通用寄存器；sret 使
 
 **负责人：** 2512558-张爱迪
 
-B 的代码已合入并通过联合测试。本节按个人理解补充核心函数说明、生成与修复过程；C 已在本目录 `prompt.md` 提供两份 Prompt。
+集成版本中的中断与异常处理代码已通过联合测试。本节说明核心函数、代码生成过程与问题处理；对应的两份 Prompt 保存在本目录 `prompt.md`。
 
 #### 模块功能理解
 
@@ -135,7 +135,7 @@ B 的代码已合入并通过联合测试。本节按个人理解补充核心函
 
 `interrupt_handler()` 先把 `tf->cause` 的最高位去掉，再按中断号分流。之所以不能只依赖最高位，是因为评分测试会直接传入不带最高位的裸中断号（如 15）。时钟中断的处理顺序是关键：先调用 `clock_set_next_event()` 设置下一次事件，再让 `ticks` 加 1；每累计到 `TICK_NUM` 的整数倍输出一次统计信息，累计输出达到 `SHUTDOWN_AFTER` 后调用 `sbi_shutdown()`。软件中断只做类型提示，未知中断输出原因并调用 `print_trapframe(tf)` 兜底。
 
-`exception_handler()` 处理非法指令和断点时，先输出触发指令的原始 `epc`，再按 RISC-V 指令编码修正 `epc`：读触发位置的低 2 位，为 `0b11` 时是 32 位指令、`epc` 加 4，否则是 16 位压缩指令、`epc` 加 2。其他异常只调用 `print_trapframe(tf)`。这样返回后不会重复执行已经触发异常的指令；普通中断不额外修改 `epc`，由 A 的 `RESTORE_ALL` 从处理后的帧恢复 `sepc`。
+`exception_handler()` 处理非法指令和断点时，先输出触发指令的原始 `epc`，再按 RISC-V 指令编码修正 `epc`：读触发位置的低 2 位，为 `0b11` 时是 32 位指令、`epc` 加 4，否则是 16 位压缩指令、`epc` 加 2。其他异常只调用 `print_trapframe(tf)`。这样返回后不会重复执行已经触发异常的指令；普通中断发生时，硬件保存的 `sepc` 已指向当前指令执行完成后的逻辑返回位置，因此处理程序不再额外修改 `epc`，由 A 的 `RESTORE_ALL` 从处理后的帧恢复 `sepc`。
 
 时钟中断本身是一次性事件，OpenSBI 的 `sbi_set_timer()` 只设置一个未来时刻，因此必须在每次进入 handler 时重新设置下一次事件，形成“触发—设置下一次—再触发”的循环。若忘记重设，系统只会收到一次时钟中断。
 
@@ -146,26 +146,23 @@ B 的代码已合入并通过联合测试。本节按个人理解补充核心函
 本次 `interrupt_handler()` 和 `exception_handler()` 的功能逻辑本身没有返修；主要问题出现在工具链和启动链路，而非 handler 的算法。
 
 - **工具链 DLL 冲突**：在 Windows 上 GCC 的 `cc1.exe` 反复报缺少 `clock_gettime64`，原因是 PATH 先命中了 Anaconda 的 `libwinpthread-1.dll`。把 MSYS2 的 `ucrt64\bin` 放到 PATH 最前面后，单文件编译与整工程构建均通过。
-- **新版汇编器不识别 `sbadaddr`**：GCC 16 把旧 CSR 名 `sbadaddr` 视为未知寄存器，导致 `trapentry.S` 无法汇编。该行不属于 B 的修改范围；本地验证时用 `DEFS+=-Dsbadaddr=stval` 临时兼容，提交版仍使用课程 GCC 10 工具链编译。
+- **新版汇编器不识别 `sbadaddr`**：GCC 16 把旧 CSR 名 `sbadaddr` 视为未知寄存器，导致 `trapentry.S` 无法汇编。本地验证时用 `DEFS+=-Dsbadaddr=stval` 临时兼容，提交版仍使用课程 GCC 10 工具链编译。
 - **内核未被 QEMU 启动**：早期评分三项全 0，查看串口日志发现只有 OpenSBI 输出且 `Domain0 Next Address` 为 0，说明内核没有跳到 `0x80200000`。原因是原加载参数 `-device loader` 在当前 OpenSBI 下未设置下一跳地址。将 QEMU 加载参数改为 `-kernel bin/ucore.img`，并补充启动物理窗口映射后，内核正常进入 `kern_init`，随后 Test 1—3 均通过。
 - **串口日志被当作二进制文件**：`grep` 对含空字节的 `.qemu.*.out` 只提示 `binary file matches`，改用 `grep -a` 后能正常看到 `100 ticks` 和 PASS 行。
-
-
-
 ---
 
 ## 五、测试与验证
 
-### C 阶段记录（历史基线）
+### 物理内存管理迁移验证
 
-1. 在 Ubuntu 22.04 WSL 中使用现有 `riscv64-unknown-elf-gcc`、`make` 和 `qemu-system-riscv64` 环境。
-2. `make clean && make` 实际构建到 `kern/trap/trap.c` 时停止，第一个错误是 `interrupt_handler` 和 `exception_handler` 尚未定义。这两个位置属于 B 的原始占位，不通过临时伪造 handler 规避。
-3. 单独执行 `make obj/kern/mm/pmm.o obj/kern/mm/best_fit_pmm.o`，C 负责的两个源文件已通过 `-Werror` 编译。
-4. 当时因 B 尚未完成，未运行启动和评分；以下为收到 B 代码后的实际复验结果。
+| 项目 | 实际结果 |
+|---|---|
+| 修改范围 | `kern/mm/pmm.c`、`kern/mm/best_fit_pmm.c` 中的 Lab2 迁移位置 |
+| 单文件编译 | 两个源文件均通过 `-Werror` 编译 |
+| 整工程启动 | `pmm_init()` 正常执行，输出 `check_alloc_page() succeeded!` |
+| 中断保护 | 保留 Lab3 在页分配、释放和统计接口中的 `local_intr_save()`/`local_intr_restore()` |
 
----
-
-### A 阶段验证与截图
+### Trap 上下文恢复模块验证
 
 | 项目 | 实际结果 |
 |---|---|
@@ -186,6 +183,18 @@ B 的代码已合入并通过联合测试。本节按个人理解补充核心函
 **图 3：TrapFrame 布局检查通过。**
 
 ![TrapFrame 布局检查通过](images/a03-layout.png)
+
+### 中断与异常处理模块验证
+
+| 项目 | 实际结果 |
+|---|---|
+| 修改范围 | `trap.c` 中 `interrupt_handler()`、`exception_handler()` 及所需的 `sbi.h` 引用；保留 lab3 标记并填写学号 2512558 |
+| 编译检查 | `trap.c` 在整工程干净构建中通过 `-Werror` 编译 |
+| Test 2 | 非法指令按实际指令长度更新 epc；软件中断和未知中断分支输出正确，25/25 |
+| Test 3 | 每次时钟中断重新设置下一事件，持续计数达到 `ticks=200`，40/40 |
+| 异常返回 | 断点与非法指令返回后均未重复触发，未知异常由 `print_trapframe(tf)` 输出现场 |
+
+处理函数需要通过 Trap 入口进入，并由上下文恢复代码返回，因此最终采用联合测试验证。Test 2 主要覆盖异常和兜底分支，Test 3 同时覆盖时钟处理与重复 Trap 返回闭环。
 
 ### 2026-11-03 联合验证
 
@@ -227,9 +236,9 @@ Test 1 验证了 A 与 B 的接口：A 传入帧地址，B 修正断点 epc，A 
 
 ### 启动兼容问题及处理
 
-B 随包的更改说明记录了两个启动问题：原加载方式在其环境下没有正确进入内核；启用分页后缺少启动物理窗口映射，导致继续取指失败。B 已在 entry.S 添加该窗口的恒等映射，并将 Makefile、grade.sh 的 QEMU 加载参数改为 `-kernel`。本次沿用这些改动，实际启动和评分通过。
+集成时发现两个启动问题：原加载方式在当前环境下没有正确进入内核；启用分页后缺少启动物理窗口映射，导致继续取指失败。为此在 `entry.S` 中添加启动物理窗口的恒等映射，并将 Makefile、grade.sh 的 QEMU 加载参数改为 `-kernel`；修改后实际启动和评分通过。
 
-核对确认 grade.sh 只改变内核加载参数；测试源码、注入器、输出判据和 35/25/40 的分值均未改动。该修复属于集成启动处理，不是 A 的上下文恢复代码返修。当前 SHUTDOWN_AFTER 沿用 B 提供的 10；指导书文字未明确其具体数值，如课程另有指定口径，由 C 最终核对。
+核对确认 grade.sh 只改变内核加载参数；测试源码、注入器、输出判据和 35/25/40 的分值均未改动。该修复属于集成启动处理，不是 A 的上下文恢复代码返修。`SHUTDOWN_AFTER` 最终采用 10，普通启动实测输出 10 次 `100 ticks` 后自动关机，Test 3 同时通过持续时钟中断检查。
 
 ---
 

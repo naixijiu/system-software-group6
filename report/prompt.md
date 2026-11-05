@@ -33,7 +33,7 @@ Requirements：通过 -Werror 构建；出现失败时保留第一个真实错�
 ### Prompt 1：实现 RESTORE_ALL
 [PROMPT]
 任务：在 kern/trap/trapentry.S 的 `#lab3 function1 YOUR CODE` 位置实现 RESTORE_ALL，使其与现有 SAVE_ALL 及 struct trapframe 的 36 个寄存器槽位严格对称。
-操作要求：只修改 kern/trap/trapentry.S；保留 `lab3 function1` 注释并将 `YOUR CODE` 替换为 `2513613`；不修改 SAVE_ALL、struct trapframe、trap() 签名和评分文件；不实现 Challenge。
+操作要求：只修改 kern/trap/trapentry.S；保留 `lab3 function1` 注释并将 `YOUR CODE` 替换为 `2513613`；不修改 SAVE_ALL、struct trapframe、trap() 签名和评分文件。
 输出要求：在项目中完成汇编实现，运行干净编译，记录代码生成结果、真实错误、修复方式和验证输出。
 [RELY]
 SAVE_ALL 在当前 sp 上分配 36*REGBYTES，保存 x0–x31 和 sstatus、sepc、sbadaddr、scause。
@@ -56,7 +56,7 @@ Requirements：不自行假设新的栈布局；不增加额外栈帧；必须�
 ### Prompt 2：实现 __alltraps 入口
 [PROMPT]
 任务：在 kern/trap/trapentry.S 的第二个 `#lab3 function1 YOUR CODE` 位置实现 __alltraps 到 C 语言 trap(struct trapframe *tf) 的调用链。
-操作要求：保持 SAVE_ALL、__trapret 和 sret 框架不变；遵循 RISC-V ABI；保留 `lab3 function1` 注释并将 `YOUR CODE` 替换为 `2513613`；不实现或启用 Challenge。
+操作要求：保持 SAVE_ALL、__trapret 和 sret 框架不变；遵循 RISC-V ABI；保留 `lab3 function1` 注释并将 `YOUR CODE` 替换为 `2513613`。
 输出要求：实际修改源码并编译；与 B 的 handler 合入后执行 Test 1–Test 3，保留真实日志。
 [RELY]
 __alltraps 入口已执行 SAVE_ALL，此时 sp 就是 struct trapframe *。
@@ -80,12 +80,12 @@ Requirements：不把 Trap frame 拷贝到新结构；不修改 trap() 签名；
 ### Prompt 1：实现 interrupt_handler()
 [PROMPT]
 任务：在 kern/trap/trap.c 的 `//lab3 function2 YOUR CODE` 位置实现 `void interrupt_handler(struct trapframe *tf)`，处理 S 态时钟中断、S 态软件中断和未知中断。
-操作要求：只修改 kern/trap/trap.c；保留 `lab3 function2` 注释并将 `YOUR CODE` 替换为 `2512558`；不修改 trap_dispatch()、trap()、时钟驱动和评分文件；不实现 Challenge。
+操作要求：只修改 kern/trap/trap.c；保留 `lab3 function2` 注释并将 `YOUR CODE` 替换为 `2512558`；不修改 trap_dispatch()、trap()、时钟驱动和评分文件。
 输出要求：完成源码实现与干净编译，保留 AI 生成结果、真实 bug、修复过程及 Test 2、Test 3 日志。
 [RELY]
 trap_dispatch() 在 tf->cause 最高位为 1 时调用 interrupt_handler()。
 libs/riscv.h 定义 IRQ_S_SOFT=1、IRQ_S_TIMER=5；clock.h 提供 ticks 和 clock_set_next_event()；sbi.h 提供 sbi_shutdown()。当前 trap.c 尚未包含 sbi.h，调用 sbi_shutdown() 时必须在该文件顶部添加 `#include <sbi.h>`。
-trap.c 已定义 TICK_NUM=100 和 print_ticks()；SHUTDOWN_AFTER 的具体数值必须使用课程网站最新骨架或助教明确给出的值。如果当前材料没有给出，先报告缺失的约束并向 C 确认，不得自行假定。
+trap.c 已定义 TICK_NUM=100 和 print_ticks()；本次集成采用 SHUTDOWN_AFTER=10，普通启动实测输出 10 次 `100 ticks` 后自动关机。
 评分关键字包括 `Supervisor software interrupt`、`Unknown interrupt: cause 15`、`100 ticks` 和 `ticks=200`。
 [GUARANTEE]
 正确去除 tf->cause 的中断标志位并按中断号分流。
