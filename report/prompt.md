@@ -7,10 +7,13 @@
 ### Prompt 1：实现功能模块二：进程创建及初始化功能
 
 [PROMPT]
+
 - 任务：在 kern/process/proc.c 中实现“进程创建及初始化”功能模块，共 6 个函数：`alloc_proc`、`proc_init`、`kernel_thread`、`do_fork`、`copy_thread`、`copy_mm`。它们一起把当前执行现场包装成第 0 个内核线程 idleproc，并创建第 1 个内核线程 initproc（入口为 init_main，参数为 "Hello world!!"）。本任务只修改 kern/process/proc.c。
 - 操作要求：必须在项目中修改实际文件 kern/process/proc.c，不要只输出代码片段；保留文件中已有的 get_pid、`forkret`、`hash_proc`、`find_proc`、`setup_kstack`、`put_kstack`、`do_exit`、`init_main` 等实现，不要删除或改写；把文件末尾 //LAB4 function2 YOUR CODE 位置替换为上述 6 个函数的实现，保留 //LAB4 function2 注释，并把 YOUR CODE 改为 2512558；不要修改 kern/mm/pmm.c（A 负责）、`kern/schedule/sched.c`、`kern/process/switch.S` 及 trap 相关文件（C 负责）；不要修改测试文件；不要在函数外新增全局变量；允许新增 static 辅助函数，但不得改变 kern/process/proc.h 中已声明的公开接口。
 - 输出要求：以本提示词 [RELY]、`[GUARANTEE]`、`[SPECIFICATION]` 与工程真实代码为准，不要引入与进程创建无关的功能。
+
 [RELY]
+
 - 真实结构体定义（来自 proc.h / trap.h）：
 struct proc_struct {
     enum proc_state state;   // PROC_UNINIT=0, PROC_SLEEPING=1, PROC_RUNNABLE=2, PROC_ZOMBIE=3
@@ -60,7 +63,9 @@ struct trapframe {
   - E_NO_MEM=4（error.h）
   - KSTACKPAGE=2、`KSTACKSIZE=KSTACKPAGE*PGSIZE`（memlayout.h）
   - 布局要点：`pushregs` 中的 s0、`s1`、`a0`、`sp` 字段用于构造新线程的首次运行现场
+
 [GUARANTEE]
+
 - 必须在最终代码中出现、且签名与声明完全一致的 6 个函数：
 static struct proc_struct *alloc_proc(void);
 void proc_init(void);
@@ -69,7 +74,9 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf);
 static void copy_thread(struct proc_struct *proc, uintptr_t esp, struct trapframe *tf);
 static int copy_mm(uint32_t clone_flags, struct proc_struct *proc);
 - copy_thread 与 copy_mm 必须为 static；不得新增/修改 proc.h 中的公开接口；如新增辅助函数，应为 static 且只在 proc.c 内部使用。
+
 [SPECIFICATION]
+
 - alloc_proc：
   - Pre-condition：`pmm` 已初始化，`kmalloc` 可用。
   - Post-Condition：返回一个已分配的新 PCB，所有字段处于安全初始状态。
@@ -106,10 +113,13 @@ static int copy_mm(uint32_t clone_flags, struct proc_struct *proc);
 ### Prompt 2：实现功能模块三的cpu_idle()与proc_run()
 
 [PROMPT]
+
 - 任务：在 kern/process/proc.c 中实现进程调度执行链里属于 proc.c 的 2 个函数：`cpu_idle` 与 proc_run。它们与 C 负责的 schedule()（sched.c）和 switch_to()（switch.S）配合，让 idleproc 主动让出 CPU、让 initproc 真正接管 CPU 运行。本任务只修改 kern/process/proc.c。
 - 操作要求：必须在项目中修改实际文件 kern/process/proc.c，不要只输出代码片段；保留已有代码；把文件末尾 //LAB4 function3 YOUR CODE 位置替换为上述 2 个函数的实现，保留 //LAB4 function3 注释，并把 YOUR CODE 改为 2512558；不要修改 kern/schedule/sched.c、`kern/process/switch.S`、`kern/trap/trap.c`、`kern/trap/trapentry.S`（C 负责）；不要修改 kern/mm/pmm.c（A 负责）；不要修改测试文件；不要在函数外新增全局变量。
 - 输出要求：以本提示词 [RELY]、`[GUARANTEE]`、`[SPECIFICATION]` 与工程真实代码为准，不要引入与进程切换无关的功能。
+
 [RELY]
+
 - 可依赖的接口与符号（均为工程内真实存在的）：
   - 全局量：`current`、`idleproc`、`initproc`、`proc_list`（proc_list 中不含 idleproc）
   - schedule()：`sched.c` 中实现（C 负责），本任务只负责调用
@@ -121,12 +131,16 @@ static int copy_mm(uint32_t clone_flags, struct proc_struct *proc);
   - flush_tlb()（pmm.h，执行 sfence.vma）
   - 参考：`kern/mm/pmm.c` 的 enable_paging() 是 Sv39 写 satp 的正确写法；`libs/riscv.h` 的 lsatp() 是 Sv32 遗留，本任务不可用
   - struct proc_struct 与 struct context 的真实布局见任务 1 的 [RELY]
+
 [GUARANTEE]
+
 - 必须在最终代码中出现、且签名与声明完全一致的 2 个函数：
 void cpu_idle(void);            // proc.h 中已带 __attribute__((noreturn))
 void proc_run(struct proc_struct *proc);
 - 不得新增/修改 proc.h 中的公开接口；如新增辅助函数，应为 static 且只在 proc.c 内部使用。
+
 [SPECIFICATION]
+
 - cpu_idle：
   - Pre-condition：系统初始化完成，`current` 有效，`schedule()` 可用。
   - Post-Condition：永不返回；循环中当 current->need_resched 为真时调用 schedule()，由调度器切换到其他线程。
