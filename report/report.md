@@ -85,7 +85,29 @@ get_pte 增加失败回滚：若第二个中间页分配失败，只撤销本次
 
 **负责人：** 2512558-张爱迪
 
-待 B 补充。
+#### `alloc_proc()`
+
+`alloc_proc()` 通过 `kmalloc()` 分配 PCB，并把所有字段置于安全初始状态：`state=PROC_UNINIT`、`pid=-1`、`runs=0`、`kstack=0`、`need_resched=0`，父进程、`mm`、`tf` 置空，`context` 清零，`pgdir` 指向内核页表根节点的物理地址 `boot_pgdir_pa`，`flags` 和 `name` 清零。它为后续资源分配提供一个不会误用未初始化字段的空白 PCB。
+
+#### `proc_init()`
+
+`proc_init()` 初始化 `proc_list` 与 `hash_list`，然后把当前启动执行现场包装成第 0 个内核线程 `idleproc`：设置 PID 0、`PROC_RUNNABLE`、内核栈为 `bootstack`、`need_resched=1`，令 `current` 指向它。随后通过 `kernel_thread(init_main, "Hello world!!", 0)` 创建第 1 个内核线程 `initproc`，登记为 PID 1，并命名 `init`。
+
+#### `kernel_thread()`、`do_fork()` 与首次运行现场
+
+`kernel_thread()` 在栈上构造临时 Trap frame，将线程入口放入 `gpr.s0`、参数放入 `gpr.s1`，再把返回地址设为 `kernel_thread_entry`；`status` 从当前 `sstatus` 派生，置 `SPP`、`SPIE` 并清 `SIE`。随后调用 `do_fork()`，把普通函数包装成可调度线程。
+
+`do_fork()` 依次分配 PCB、内核栈，调用 `copy_mm()` 与 `copy_thread()`，在关中断临界区内分配 PID、把 PCB 挂入哈希表和进程链表并增加 `nr_process`，最后 `wakeup_proc()` 置为 `PROC_RUNNABLE` 并返回 PID。前三步任一失败都会回滚：PCB 分配失败直接返回；内核栈分配失败释放 PCB；`copy_mm()` 失败时同时释放内核栈和 PCB。
+
+`copy_thread()` 把 Trap frame 放到新进程内核栈顶端，设置子线程返回值 `a0=0`、Trap frame 的 `sp`，并令 `context.ra=forkret`、`context.sp` 指向 Trap frame，使线程第一次被切换时经 `forkret -> forkrets -> __trapret -> kernel_thread_entry` 进入目标函数。
+
+#### `copy_mm()`
+
+本实验创建的是共享内核地址空间的内核线程，`current->mm` 为 `NULL`，因此 `copy_mm()` 只保持完整函数接口并返回 0，不复制用户地址空间；`proc->mm` 保持 `NULL`，为后续用户进程实验预留扩展点。
+
+#### 实现过程中的问题
+
+联调时最容易混淆的是 `idleproc` 与普通 fork 出来的线程：`idleproc` 直接复用启动现场和 `bootstack`，不需要再复制 Trap frame；`initproc` 才是第一个通过 `kernel_thread()->do_fork()` 创建的线程。另一个关键是 `pgdir` 必须保存页表根节点的物理地址 `boot_pgdir_pa`，否则 `proc_run()` 写入 `satp` 时无法正确切换地址空间。调试验证中还确认，`do_fork()` 的两级失败清理必须区分：内核栈失败只释放 PCB，`copy_mm()` 失败还要释放内核栈，否则会留下物理页泄漏。
 
 ---
 
@@ -135,6 +157,21 @@ C 的普通任务 Prompt 位于 `report/prompt.md` 的 C 章节：
 #### 实现过程中的问题
 
 完整构建在 A 负责的 `kern/mm/default_pmm.c` 处因缺少 `best_fit_pmm.h` 停止。为验证 C 的实现，单独编译 `trap.c`、`trapentry.S`、`sched.c`、`switch.S` 及 B 的 `proc.c`，均成功生成目标文件。反汇编进一步确认 `switch_to` 按偏移 0 至 104 字节保存和恢复 14 个上下文字段并以 `ret` 返回。完整运行测试等待 A 的代码进入工程后进行。
+
+#### B 负责的函数
+
+```c
+void cpu_idle(void);
+void proc_run(struct proc_struct *proc);
+```
+
+`cpu_idle()` 是 idleproc 的执行主体，函数永不返回。它循环检查 `current->need_resched`：当该标志为 1 时调用 `schedule()`，由调度器选择下一个可运行线程；`proc_init()` 已把 idleproc 的 `need_resched` 置 1，因此第一次进入 `cpu_idle()` 就会让出 CPU 给 initproc。若没有调度请求，则继续循环等待。
+
+`proc_run()` 只在目标 `proc != current` 时执行切换。它在保存并关闭本地中断后把 `current` 更新为目标线程，使用 Sv39 方式把 `proc->pgdir` 写入 `satp`，刷新 TLB，再调用 `switch_to(&prev->context, &proc->context)` 保存旧现场、恢复新现场；切换回来后恢复进入函数前的中断状态。`satp` 的写入必须使用 `SATP_MODE_SV39`，不能使用 `libs/riscv.h` 中面向 Sv32 的 `lsatp()`。
+
+#### 实现过程中的问题
+
+实现 `proc_run()` 时，`current`、页表和实际执行现场必须在同一个关中断临界区内保持一致，否则切换过程中发生中断会使三者错位。另一个容易误判的问题是 `switch_to()` 不会像普通函数那样立即返回到 `proc_run()`：只有在旧线程将来重新被调度时，原调用点之后的 `local_intr_restore()` 才会继续执行。首次切换若失败，不能只检查 `proc_run()`，还要核对 `copy_thread()` 设置的 `context.ra`、`context.sp` 以及 C 负责的 `switch_to()` 寄存器偏移是否一致。
 
 ---
 
@@ -193,6 +230,25 @@ Total Score: 30/30
 
 ![Lab4 A 最终评分 30/30](images/A-qemu411-grade-30of30.png)
 
+### B 的实际验证记录
+
+`test_lab4_process_create()` 注入在 `proc_init()` 末尾执行，检查 idleproc/initproc 的创建结果：
+
+- `current == idleproc`，`idleproc->pid == 0`，状态为 `PROC_RUNNABLE`；
+- `idleproc->kstack == bootstack`，`parent/mm/tf` 符合第 0 个内核线程的初始状态；
+- `initproc->pid == 1`，状态为 `PROC_RUNNABLE`，`parent == idleproc`；
+- `initproc->context.ra` 与 `context.sp` 均非 0，说明首次运行现场已经建立。
+
+在最终代码的评分流程中，Process Create 项实际输出：
+
+```text
+[Test Process Create] PASS
+```
+
+截图如下：
+
+![B Process Create 测试通过](images/B-test-progress-create.png)
+
 ### C 的实际验证记录
 
 | 验证项 | 实际结果 |
@@ -223,6 +279,14 @@ Trap frame 与 context 的用途不同：Trap frame 保存异常或中断边界�
 ### AI 协作开发的经验
 
 提示词中的 `[RELY]` 必须引用真实结构体布局、现有接口和测试条件；汇编任务尤其需要明确字段顺序与寄存器偏移。验证时应区分“单文件编译通过”“完整工程构建通过”和“运行测试通过”，不能用前一种证据替代后一种结论。
+
+### B 的知识点与收获
+
+通过实现模块二，理解了 PCB、内核栈、Trap frame 和 context 的分工：PCB 管理进程身份与生命周期，内核栈提供线程自己的运行空间，Trap frame 保存首次进入内核线程时的完整处理器状态，context 只保存主动切换时需要恢复的被调用者保存寄存器。idleproc 直接继承启动现场，而 initproc 通过 do_fork 创建，这让我更清楚“当前执行流”如何变成可调度线程。
+
+模块三的 cpu_idle/proc_run 把“选择线程”和“切换线程”连接起来：cpu_idle 只在需要时让出 CPU，proc_run 负责 current、Sv39 页表和上下文三者的一致性，switch_to 则专注于寄存器现场保存与恢复。首次运行链 `forkret -> forkrets -> __trapret -> kernel_thread_entry` 也说明，进程创建和调度不是两个孤立模块，必须通过同一套 context/Trap frame 约定衔接。
+
+与 OS 原理相比，本实验的内核线程共享内核地址空间，copy_mm 只是占位；尚未实现用户进程地址空间、写时复制、fork/exec/wait、按需分页和多种调度策略。do_exit 在本实验中也仍是 stub。验证方面，我认识到单文件编译通过、完整构建通过和运行测试通过是三个不同层次；Process Create 测试能直接覆盖 PCB 字段、内核栈和首次运行现场，但完整结论仍要等三位同学代码合并后由 make grade 给出。
 
 
 ### A 的知识点与收获
