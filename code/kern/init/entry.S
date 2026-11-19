@@ -29,6 +29,15 @@ kern_entry:
     csrw    satp, t0
     # 使用 sfence.vma 指令刷新 TLB
     sfence.vma
+    # The identity leaf keeps the next physical instruction mapped while satp
+    # changes. Jump to the higher-half mapping before dropping that leaf.
+    lui t2, %hi(paging_high_entry)
+    addi t2, t2, %lo(paging_high_entry)
+    jr t2
+paging_high_entry:
+    la t2, boot_page_table_sv39
+    sd zero, 16(t2)              # clear VPN[2] = 2 identity mapping
+    sfence.vma
     # 从此，我们给内核搭建出了一个完美的虚拟内存空间！
     #nop # 可能映射的位置有些bug。。插入一个nop
     
@@ -57,8 +66,10 @@ bootstacktop:
 # 分配 4KiB 内存给预设的三级页表
 boot_page_table_sv39:
     # 0xffffffff_c0000000 map to 0x80000000 (1G)
-    # 前 511 个页表项均设置为 0 ，因此 V=0 ，意味着是空的(unmapped)
-    .zero 8 * 511
+    # Temporary 1 GiB identity leaf for the instruction after writing satp.
+    .zero 8 * 2
+    .quad (0x80000 << 10) | 0xcf
+    .zero 8 * (511 - 3)
     # 设置最后一个页表项，PPN=0x80000，标志位 VRWXAD 均为 1
     .quad (0x80000 << 10) | 0xcf # VRWXAD
 

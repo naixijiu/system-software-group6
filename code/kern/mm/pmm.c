@@ -87,7 +87,82 @@ size_t nr_free_pages(void)
     return ret;
 }
 
-//lab2 请补充你在lab2中的代码
+//lab2 请补充你在lab2中的代码 — 2513613
+static void page_init(void) {
+    extern char end[];
+    uint64_t mem_base = get_memory_base();
+    uint64_t mem_size = get_memory_size();
+
+    /* The boot mapping is fixed by entry.S, not by the DTB RAM base. */
+    va_pa_offset = PHYSICAL_MEMORY_OFFSET;
+    if (mem_base == 0 || mem_size == 0 ||
+        mem_size > (uint64_t)-1 - mem_base) {
+        panic("page_init: invalid DTB memory range");
+    }
+
+    /* This skeleton describes one RAM bank starting at DRAM_BASE. */
+    if (mem_base != DRAM_BASE) {
+        panic("page_init: unsupported DRAM base");
+    }
+
+    uint64_t mem_end = mem_base + mem_size;
+    cprintf("Physical memory: [0x%016lx, 0x%016lx)\n",
+            mem_base, mem_end);
+
+    /* entry.S maps one 1 GiB leaf at VPN2=511. Larger RAM needs new mappings;
+     * adding va_pa_offset beyond this leaf would wrap the virtual address. */
+    if (mem_end > DRAM_BASE + (1UL << 30)) {
+        panic("page_init: RAM exceeds boot direct mapping");
+    }
+
+    /* Follow the DTB within the verified boot mapping, not a fixed 128 MiB cap. */
+    uintptr_t maxpa = ROUNDDOWN(mem_end, PGSIZE);
+
+    if (maxpa <= PADDR(KERNBASE)) {
+        panic("page_init: no manageable memory after OpenSBI");
+    }
+
+    npage = PPN(maxpa);
+
+    uintptr_t end_va = (uintptr_t)end;
+    if (end_va < KERNBASE || end_va >= KERNTOP) {
+        panic("page_init: invalid kernel end");
+    }
+
+    uintptr_t pages_pa = ROUNDUP(PADDR(end_va), PGSIZE);
+    size_t count = npage - nbase;
+
+    if (pages_pa >= maxpa ||
+        count > (maxpa - pages_pa) / sizeof(struct Page)) {
+        panic("page_init: insufficient memory for Page array");
+    }
+
+    pages = (struct Page *)(pages_pa + va_pa_offset);
+    uintptr_t descriptors_end =
+        pages_pa + count * sizeof(struct Page);
+
+    for (size_t i = 0; i < count; i++) {
+        pages[i].flags = 0;
+        pages[i].property = 0;
+        set_page_ref(&pages[i], 0);
+        list_init(&pages[i].page_link);
+        SetPageReserved(&pages[i]);
+    }
+
+    uintptr_t freemem = ROUNDUP(descriptors_end, PGSIZE);
+
+    if (freemem >= maxpa) {
+        panic("page_init: no complete free pages");
+    }
+
+    size_t free_count = (maxpa - freemem) / PGSIZE;
+    init_memmap(pa2page(freemem), free_count);
+
+    cprintf("Free physical pages: [0x%016lx, 0x%016lx), %lu pages\n",
+            freemem, maxpa, free_count);
+}
+
+
 
 static void enable_paging(void)
 {
@@ -176,6 +251,7 @@ void pmm_init(void)
 // return vaule: the kernel virtual address of this pte
 pte_t *get_pte(pde_t *pgdir, uintptr_t la, bool create)
 {
+    struct Page *new_table = NULL;
     pde_t *pdep1 = &pgdir[PDX1(la)];
     if (!(*pdep1 & PTE_V))
     {
@@ -188,6 +264,7 @@ pte_t *get_pte(pde_t *pgdir, uintptr_t la, bool create)
         uintptr_t pa = page2pa(page);
         memset(KADDR(pa), 0, PGSIZE);
         *pdep1 = pte_create(page2ppn(page), PTE_U | PTE_V);
+        new_table = page;
     }
     pde_t *pdep0 = &((pte_t *)KADDR(PDE_ADDR(*pdep1)))[PDX0(la)];
     if (!(*pdep0 & PTE_V))
@@ -195,6 +272,12 @@ pte_t *get_pte(pde_t *pgdir, uintptr_t la, bool create)
         struct Page *page;
         if (!create || (page = alloc_page()) == NULL)
         {
+            if (new_table != NULL) {
+                *pdep1 = 0;
+                tlb_invalidate(pgdir, la);
+                set_page_ref(new_table, 0);
+                free_page(new_table);
+            }
             return NULL;
         }
         set_page_ref(page, 1);
@@ -220,7 +303,31 @@ struct Page *get_page(pde_t *pgdir, uintptr_t la, pte_t **ptep_store)
     return NULL;
 }
 
-//LAB4 function1 YOUR CODE
+//LAB4 function1 2513613
+static void page_remove_pte(pde_t *pgdir, uintptr_t la, pte_t *ptep) {
+    if (*ptep & PTE_V) {
+        struct Page *page = pte2page(*ptep);
+        *ptep = 0;
+        tlb_invalidate(pgdir, la);
+        if (page_ref_dec(page) == 0) free_page(page);
+    }
+}
+void page_remove(pde_t *pgdir, uintptr_t la) {
+    pte_t *ptep = get_pte(pgdir, la, 0);
+    if (ptep != NULL) page_remove_pte(pgdir, la, ptep);
+}
+int page_insert(pde_t *pgdir, struct Page *page, uintptr_t la, uint32_t perm) {
+    pte_t *ptep = get_pte(pgdir, la, 1);
+    if (ptep == NULL) return -E_NO_MEM;
+    page_ref_inc(page);
+    if (*ptep & PTE_V) {
+        if (pte2page(*ptep) == page) page_ref_dec(page);
+        else page_remove_pte(pgdir, la, ptep);
+    }
+    *ptep = pte_create(page2ppn(page), perm | PTE_V);
+    tlb_invalidate(pgdir, la);
+    return 0;
+}
 
 
 

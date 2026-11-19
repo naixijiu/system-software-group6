@@ -2,6 +2,32 @@
 
 ## A（2513613 李佳凝）
 
+
+[PROMPT]
+
+- 任务：使用 GPT-6 协助 A（2513613 李佳凝）恢复 Lab2，实现 page_insert、page_remove 及必要的 page_remove_pte，完成 Challenge 2 和报告。
+- 操作要求：先读指导书、分工并检查 lab4 分支及 Git 状态；仅补全 code/kern/mm/pmm.c、default_pmm.c，参考已验证历史实现，简要解释设计。
+- 输出要求：给出修改清单、最小 diff、真实测试和未解决问题；沿用现有三份报告文件。
+
+[RELY]
+
+- Windows + WSL Ubuntu，RISC-V GCC、Make、QEMU，Sv39 三级页表；使用项目实际页分配、引用计数和 TLB 接口。
+- B 负责 proc.c；C 负责 trap.c、trapentry.S、sched.c、switch.S。最新进度需重新核对。
+
+[GUARANTEE]
+
+- 不覆盖队友代码和报告，不修改评分逻辑与断言；保留 lab 注释，A 的 YOUR CODE 改为 2513613。
+- PTE、引用计数、TLB 保持一致；同页重映射净引用不变，删除空映射无副作用，分配失败不泄漏。
+- 记录实际 Bug 与复测，不编造 PASS 或截图；展示结果后再决定提交，未经确认不 push。
+
+[SPECIFICATION]
+
+- **恢复 Lab2**：前置为有效内存信息和启动映射；正确初始化页描述符及空闲页，恢复 Best-Fit 分配、拆分和合并，保留原检查函数。
+- **page_insert**：前置为有效页目录、已分配物理页及必要同步。成功返回 0，安装目标页及权限并刷新 TLB；新映射增加引用，同页替换仅更新权限，异页替换释放旧引用。失败返回 -E_NO_MEM，保留旧映射并回滚本次必要分配。
+- **page_remove**：使用 get_pte(..., 0)；有效映射清除 PTE、减少引用，归零释放并刷新 TLB；不存在或重复删除安全返回。可复用 page_remove_pte。
+- **测试**：执行构建与 QEMU，检查 check_alloc_page、check_pgdir、check_boot_pgdir、test_lab4_pmm_basic；三人汇合后 make grade，目标为三项 PASS、30/30，保留真实日志和失败归属。
+- **Challenge 2 与报告**：解释 Sv32/Sv39/Sv48 和 get_pte 两段相似代码，讨论查找与分配拆分的利弊；填写函数原理、Spec/Prompt、实际排查、测试与 OS 原理联系。
+
 ## B（2512558 张爱迪）
 
 ### Prompt 1：实现功能模块二：进程创建及初始化功能
