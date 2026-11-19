@@ -34,7 +34,7 @@
 | 成员 | AI 编程工具 | 底层模型 | 备注 |
 |---|---|---|---|
 | 2513613-李佳凝 | Codex 桌面应用 | GPT-6 | Windows + WSL Ubuntu；riscv64-linux-gnu-gcc、QEMU |
-| 2512558-张爱迪 | 待 B 填写 | 待 B 填写 | |
+| 2512558-张爱迪 | Codex 桌面应用 | Deepseek V4 Flash | Windows + MSYS2 UCRT64；RISC-V GCC 16.1.0、QEMU 11.1.2|
 | 2513582-张子芊 | Codex 桌面应用 | GPT-5 | Windows 工作区；使用 WSL 中的 RISC-V GCC 与 QEMU 工具链做编译检查 |
 
 ---
