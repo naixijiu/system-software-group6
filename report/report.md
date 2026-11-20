@@ -16,7 +16,7 @@
 | 2512558-张爱迪 | 功能模块二：进程创建及初始化；功能模块三中的 `cpu_idle()`、`proc_run()` |
 | 2513582-张子芊 | 迁移 Lab3 Trap 代码；功能模块三中的 `schedule()`、`switch_to()`；Challenge 1 |
 
-实验报告由三人边实现边填写本人负责部分，最终文件已汇总 A、B、C 三人的模块实现、Challenge 与验证结果。
+实验报告由三人分别撰写本人负责的模块与 Challenge。
 
 ---
 
@@ -47,7 +47,7 @@
 
 ### 3.2 功能的逐步实现
 
-先恢复 Lab2 物理内存初始化和 Best Fit 分配器，再实现映射增加、替换、撤销；使用 B/C 已提交的进程与调度代码进行整体编译和评分。
+先恢复 Lab2 的物理内存初始化和 Best Fit 分配器，再实现页映射的增加、替换和撤销，最后连接进程创建、调度与上下文切换并进行整体测试。
 
 ---
 
@@ -156,7 +156,7 @@ C 的普通任务 Prompt 位于 `report/prompt.md` 的 C 章节：
 
 #### 实现过程中的问题
 
-合并前，完整构建曾在 A 负责的 `kern/mm/default_pmm.c` 处因缺少 `best_fit_pmm.h` 停止。C 当时先单独编译 `trap.c`、`trapentry.S`、`sched.c`、`switch.S` 及 B 的 `proc.c`，并通过反汇编确认 `switch_to` 按偏移 0 至 104 字节保存和恢复 14 个上下文字段。A 补全 PMM、三人代码最终合并后，完整构建成功，调度测试通过，最终评分为 `30/30`。
+调试时发现 `default_pmm.c` 引用了工程中不存在的 `best_fit_pmm.h`，补全 PMM 后完整构建通过。`switch_to` 的反汇编结果显示，偏移 0 至 104 字节对应 `ra`、`sp` 和 `s0-s11` 共 14 个字段；调度测试通过。
 
 #### B 负责的函数
 
@@ -213,7 +213,7 @@ Sv32 使用二级页表，虚拟地址为 10+10+12 位，每页表 1024 个 4 �
 
 ### A 的实际验证记录（更新于 2026-11-19）
 
-实验指导《实验指导.docx》的“安装模拟器 Qemu”一节以 QEMU 4.1.1 为示例，并要求版本在 4.1.0 以上。起初在 WSL 自带 QEMU 8.2.2 上，按课程原框架设置非叶页表项 `PTE_U | PTE_V` 时，`check_pgdir()` 通过，但随后 `check_boot_pgdir()` 对低地址 `0x100` 的写入发生缺页。进一步按指导书下载、编译 QEMU 4.1.1 后，使用**同一份正式内核代码**运行，`check_alloc_page()`、`check_pgdir()`、`check_boot_pgdir()`、VMM 检查及 initproc 规定输出均出现。因此本次缺页与两版 QEMU 的页表遍历行为差异有关，不能据此判断三位同学的模块均失败。
+指导书以 QEMU 4.1.1 为示例，并要求版本不低于 4.1.0。在 WSL 自带的 QEMU 8.2.2 中，`check_pgdir()` 通过后，`check_boot_pgdir()` 对低地址 `0x100` 的写入发生缺页；同一份代码在 QEMU 4.1.1 中通过 `check_alloc_page()`、`check_pgdir()`、`check_boot_pgdir()` 和 VMM 检查，并正常输出 initproc 信息。最终测试采用 QEMU 4.1.1。
 
 在 QEMU 4.1.1 下，用裸机 RISC-V 工具链运行完整 `make grade`，实际结果：
 
@@ -224,7 +224,7 @@ Sv32 使用二级页表，虚拟地址为 10+10+12 位，每页表 1024 个 4 �
 Total Score: 30/30
 ```
 
-评分在工作台的 `qemu411-grade-copy` 运行。该副本取自当前正式 `code/`；仅为 WSL 执行转换 `tools/grade.sh` 的 Windows 换行，并用启动包装脚本指定 QEMU 4.1.1 和内核镜像。课程测试断言和评分判断未修改。正式 `pmm.c` 中原框架的 `PTE_U` 设置与 `check_pgdir()` 断言保持一致。证据为 `A-qemu-4.1.1.log` 和 `A-qemu411-grade.log`。Windows 下的 QEMU 8.2.2 失败记录仅作为版本排查依据，不作为最终截图。
+测试副本取自正式 `code/`，只转换了 `tools/grade.sh` 的 Windows 换行并指定 QEMU 4.1.1，课程测试和评分条件未修改。运行记录保存在 `A-qemu-4.1.1.log` 和 `A-qemu411-grade.log`。
 
 **最终评分截图。** 下图为 QEMU 4.1.1 环境下的实际 `make grade` 结果，包含三项 OK 和 `Total Score: 30/30`。
 
@@ -253,18 +253,12 @@ Total Score: 30/30
 
 | 验证项 | 实际结果 |
 |---|---|
-| `kern/trap/trap.c` 编译 | 通过 |
-| `kern/trap/trapentry.S` 编译 | 通过 |
-| `kern/schedule/sched.c` 单独编译 | 通过 |
-| `kern/process/switch.S` 单独编译 | 通过 |
-| B 的 `kern/process/proc.c` 接口编译 | 通过 |
+| Trap、调度与上下文切换相关文件编译 | 通过 |
 | `switch.o` 反汇编偏移检查 | 通过，14 个字段与 `struct context` 一致 |
-| `schedule`、Trap handler 符号检查 | 通过 |
-| 最终合并后的完整 `make` | 通过；2026-11-20 对 GitHub `lab4` 分支 HEAD 使用 WSL 与 RISC-V GCC 10.2.0 再次构建成功 |
-| 最终运行 | 通过；initproc 正确输出 PID、名称和两行规定消息，随后进入本实验尚未实现的 `do_exit()` stub |
-| 最终 `make grade` | QEMU 4.1.1 下 `[Test Schedule] PASS`，三项评分合计 `30/30` |
-
-合并前，C 先通过单文件编译、符号检查和反汇编确认本人负责文件的接口与偏移；该阶段完整工程曾因 A 的 PMM 尚未补全而无法运行。三人代码最终合并后，完整构建、initproc 运行和 `[Test Schedule] PASS` 均已由第五章 A 的最终评分日志覆盖，因此不能再把合并前的阶段性失败表述为最终工程状态。
+| 完整 `make` | 通过 |
+| initproc 运行 | 正确输出 PID、名称和两行规定消息 |
+| 调度测试 | `[Test Schedule] PASS` |
+| 完整评分 | `30/30` |
 
 ---
 
@@ -286,7 +280,7 @@ Trap frame 与 context 的用途不同：Trap frame 保存异常或中断边界�
 
 模块三的 cpu_idle/proc_run 把“选择线程”和“切换线程”连接起来：cpu_idle 只在需要时让出 CPU，proc_run 负责 current、Sv39 页表和上下文三者的一致性，switch_to 则专注于寄存器现场保存与恢复。首次运行链 `forkret -> forkrets -> __trapret -> kernel_thread_entry` 也说明，进程创建和调度不是两个孤立模块，必须通过同一套 context/Trap frame 约定衔接。
 
-与 OS 原理相比，本实验的内核线程共享内核地址空间，copy_mm 只是占位；尚未实现用户进程地址空间、写时复制、fork/exec/wait、按需分页和多种调度策略。do_exit 在本实验中也仍是 stub。验证方面，我认识到单文件编译通过、完整构建通过和运行测试通过是三个不同层次；Process Create 测试直接覆盖 PCB 字段、内核栈和首次运行现场，最终三人代码合并后再由 `make grade` 完成整体验证并取得 `30/30`。
+本实验的内核线程共享内核地址空间，`copy_mm()` 尚未复制用户地址空间，`do_exit()` 也仍是占位实现。用户进程隔离、写时复制、`fork/exec/wait`、按需分页和多种调度策略将在后续实验中继续实现。
 
 
 ### A 的知识点与收获
