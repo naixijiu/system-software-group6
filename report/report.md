@@ -16,7 +16,7 @@
 | 2512558-张爱迪 | 功能模块二：进程创建及初始化；功能模块三中的 `cpu_idle()`、`proc_run()` |
 | 2513582-张子芊 | 迁移 Lab3 Trap 代码；功能模块三中的 `schedule()`、`switch_to()`；Challenge 1 |
 
-实验报告由三人边实现边填写本人负责部分。当前文件已填写 C 的实际工作，A、B 在同一文件中继续补充各自模块。
+实验报告由三人边实现边填写本人负责部分，最终文件已汇总 A、B、C 三人的模块实现、Challenge 与验证结果。
 
 ---
 
@@ -156,7 +156,7 @@ C 的普通任务 Prompt 位于 `report/prompt.md` 的 C 章节：
 
 #### 实现过程中的问题
 
-完整构建在 A 负责的 `kern/mm/default_pmm.c` 处因缺少 `best_fit_pmm.h` 停止。为验证 C 的实现，单独编译 `trap.c`、`trapentry.S`、`sched.c`、`switch.S` 及 B 的 `proc.c`，均成功生成目标文件。反汇编进一步确认 `switch_to` 按偏移 0 至 104 字节保存和恢复 14 个上下文字段并以 `ret` 返回。完整运行测试等待 A 的代码进入工程后进行。
+合并前，完整构建曾在 A 负责的 `kern/mm/default_pmm.c` 处因缺少 `best_fit_pmm.h` 停止。C 当时先单独编译 `trap.c`、`trapentry.S`、`sched.c`、`switch.S` 及 B 的 `proc.c`，并通过反汇编确认 `switch_to` 按偏移 0 至 104 字节保存和恢复 14 个上下文字段。A 补全 PMM、三人代码最终合并后，完整构建成功，调度测试通过，最终评分为 `30/30`。
 
 #### B 负责的函数
 
@@ -260,11 +260,11 @@ Total Score: 30/30
 | B 的 `kern/process/proc.c` 接口编译 | 通过 |
 | `switch.o` 反汇编偏移检查 | 通过，14 个字段与 `struct context` 一致 |
 | `schedule`、Trap handler 符号检查 | 通过 |
-| 完整 `make` | 在 A 的 `default_pmm.c` 处失败：缺少 `best_fit_pmm.h` |
-| `make qemu` | 未执行，完整工程尚未构建成功 |
-| `make grade` | 未执行，等待 A 的功能模块一 |
+| 最终合并后的完整 `make` | 通过；2026-11-20 对 GitHub `lab4` 分支 HEAD 使用 WSL 与 RISC-V GCC 10.2.0 再次构建成功 |
+| 最终运行 | 通过；initproc 正确输出 PID、名称和两行规定消息，随后进入本实验尚未实现的 `do_exit()` stub |
+| 最终 `make grade` | QEMU 4.1.1 下 `[Test Schedule] PASS`，三项评分合计 `30/30` |
 
-上述结果仅证明 C 的文件能够编译，不能替代 `[Test Schedule] PASS`。完整工程可编译后，还需运行调度测试和最终评分。
+合并前，C 先通过单文件编译、符号检查和反汇编确认本人负责文件的接口与偏移；该阶段完整工程曾因 A 的 PMM 尚未补全而无法运行。三人代码最终合并后，完整构建、initproc 运行和 `[Test Schedule] PASS` 均已由第五章 A 的最终评分日志覆盖，因此不能再把合并前的阶段性失败表述为最终工程状态。
 
 ---
 
@@ -286,7 +286,7 @@ Trap frame 与 context 的用途不同：Trap frame 保存异常或中断边界�
 
 模块三的 cpu_idle/proc_run 把“选择线程”和“切换线程”连接起来：cpu_idle 只在需要时让出 CPU，proc_run 负责 current、Sv39 页表和上下文三者的一致性，switch_to 则专注于寄存器现场保存与恢复。首次运行链 `forkret -> forkrets -> __trapret -> kernel_thread_entry` 也说明，进程创建和调度不是两个孤立模块，必须通过同一套 context/Trap frame 约定衔接。
 
-与 OS 原理相比，本实验的内核线程共享内核地址空间，copy_mm 只是占位；尚未实现用户进程地址空间、写时复制、fork/exec/wait、按需分页和多种调度策略。do_exit 在本实验中也仍是 stub。验证方面，我认识到单文件编译通过、完整构建通过和运行测试通过是三个不同层次；Process Create 测试能直接覆盖 PCB 字段、内核栈和首次运行现场，但完整结论仍要等三位同学代码合并后由 make grade 给出。
+与 OS 原理相比，本实验的内核线程共享内核地址空间，copy_mm 只是占位；尚未实现用户进程地址空间、写时复制、fork/exec/wait、按需分页和多种调度策略。do_exit 在本实验中也仍是 stub。验证方面，我认识到单文件编译通过、完整构建通过和运行测试通过是三个不同层次；Process Create 测试直接覆盖 PCB 字段、内核栈和首次运行现场，最终三人代码合并后再由 `make grade` 完成整体验证并取得 `30/30`。
 
 
 ### A 的知识点与收获
